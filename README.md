@@ -93,27 +93,30 @@ The setting is stored in `settings.json` under `pluginConfigs`. Changing it in `
 
 ## Completion notification
 
-Start a long task, switch to your browser or another app, and get a Windows notification the moment Claude finishes, so you don't have to keep checking back.
+Start a long task, switch to your browser or another app, and get a Windows notification the moment Claude finishes or needs your answer, so you don't have to keep checking back.
 
 ![Completion notification](images/notification.png)
 
 - **Header:** a small logo and `Claude Code Notification`, the name of the notifying app.
 - **Logo:** the Claude logo on the left.
 - **First line:** `Claude Code`.
-- **Second line:** `Answer complete (<project folder>)`. The folder name tells you which session finished when several are running.
+- **Second line:** what happened, with the project folder so you can tell sessions apart:
+  - `Answer Complete (<project folder>)` when an answer finishes;
+  - `Waiting for your answer (<project folder>)` when Claude asks for permission (Yes/No) or asks you a question.
 
-When an answer finishes, the mod checks which window is in front:
+When either happens, the mod checks which window is in front:
 
-- If it's **VS Code**, **Windows Terminal**, or a **PowerShell / console** window, nothing happens — you're assumed to be watching.
-- Otherwise the notification above is shown.
+- If it's the **VS Code window of this project** (its title contains the project folder name), or a **Windows Terminal** / **PowerShell / console** window, nothing happens — you're assumed to be watching.
+- Otherwise, including another VS Code window, the notification above is shown.
 
-Subagents finishing their own work don't trigger it; only the end of the main answer does.
+Subagents finishing their own work don't trigger it; only the main conversation does. A permission prompt and a question that arrive together raise a single notification.
 
 The toast is sent as an app named **Claude Code Notification**, registered for the current user under `HKCU\Software\Classes\AppUserModelId\ClaudeCode.UsageBand` (created on the first notification). It uses the Windows default notification sound (Control Panel → Sound → *Notification*). The small app icon in the toast's header is drawn by Windows in its own color; the logo in the body keeps its original colors.
 
 **Limitations**
 
-- The check is per program, not per window. While another VS Code or terminal window is in front, no notification is shown.
+- VS Code windows are told apart by their title. Another VS Code window with a folder of the same name, or a `window.title` setting that leaves the folder name out, isn't distinguished.
+- Terminal windows are checked per program: while any Windows Terminal or PowerShell window is in front, no notification is shown.
 - If notifications for Claude Code Notification are turned off in Windows Settings, or Do Not Disturb is on, you won't see the toast.
 
 ## Update

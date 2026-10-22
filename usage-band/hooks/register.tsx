@@ -83,31 +83,60 @@ async function refreshMonthly($: EngineInterface) {
   }
 }
 
-// Programs Claude Code runs in: while one of them is the foreground window, the person is
-// taken to be watching and no notification is raised.
-const WATCHING = ['Code', 'WindowsTerminal', 'powershell', 'pwsh', 'conhost', 'OpenConsole']
+// Terminals Claude Code runs in: while one of them is the foreground window, the person is
+// taken to be watching and no notification is raised. VS Code is told apart by window: only
+// a window whose title names the session's project folder counts as watching.
+const TERMINALS = ['WindowsTerminal', 'powershell', 'pwsh', 'conhost', 'OpenConsole']
 
 // The Windows app the toast is sent as: registered under the current user as "Claude Code Notification".
 const APP_ID = 'ClaudeCode.UsageBand'
 
-// A Windows toast that the answer is done, unless Claude Code's window is in front. The
-// logo is claude.png in the mod's folder; without it the toast has no logo.
-async function notifyIfAway($: EngineInterface) {
+// The notification lines: an answer that finished, and a prompt that waits on the person.
+const ANSWER_COMPLETE = 'Answer Complete'
+const WAITING = 'Waiting for your answer'
+
+// A permission prompt and a question dialog can both stand for one ask: the second within
+// this many milliseconds of the first raises no toast of its own.
+const ASK_QUIET_MS = 3000
+let lastAskAt = 0
+
+// A permission prompt (Yes/No) or a question dialog: Claude waits on the person.
+async function notifyAsk($: EngineInterface) {
+  const now = await $.clock.now()
+
+  if (now - lastAskAt >= ASK_QUIET_MS) {
+    lastAskAt = now
+    void notifyIfAway($, WAITING)
+  }
+}
+
+// A Windows toast of `message`, unless Claude Code's window is in front. The logo is
+// claude.png in the mod's folder; without it the toast has no logo.
+async function notifyIfAway($: EngineInterface, message: string) {
   try {
     const folder = (await $.session.cwd()).split(/[\\/]/).filter(Boolean).pop() ?? ''
     const logo = `${$.plugin.root}/claude.png`.replace(/'/g, "''")
-    const body = `Answer complete (${folder})`
+    const body = `${message} (${folder})`
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/'/g, "''")
-    const watching = WATCHING.map(name => `'${name}'`).join(',')
+    const project = ((await $.session.root()).split(/[\\/]/).filter(Boolean).pop() ?? '').replace(
+      /'/g,
+      "''",
+    )
+    const terminals = TERMINALS.map(name => `'${name}'`).join(',')
     const script = [
-      `Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, out uint p);'`,
+      `Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, out uint p); [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(System.IntPtr h, System.Text.StringBuilder s, int n);'`,
+      `$hwnd = [W.U]::GetForegroundWindow()`,
       `$fgPid = 0`,
-      `[void][W.U]::GetWindowThreadProcessId([W.U]::GetForegroundWindow(), [ref]$fgPid)`,
+      `[void][W.U]::GetWindowThreadProcessId($hwnd, [ref]$fgPid)`,
       `$name = (Get-Process -Id $fgPid -ErrorAction SilentlyContinue).ProcessName`,
-      `if (@(${watching}) -contains $name) { exit }`,
+      `$title = New-Object System.Text.StringBuilder 512`,
+      `[void][W.U]::GetWindowText($hwnd, $title, 512)`,
+      `$project = '${project}'`,
+      `if ($name -eq 'Code' -and $project -and $title.ToString().IndexOf($project, [StringComparison]::OrdinalIgnoreCase) -ge 0) { exit }`,
+      `if (@(${terminals}) -contains $name) { exit }`,
       `$logo = '${logo}'`,
       `if (-not (Test-Path $logo)) { $logo = $null }`,
       `$key = 'HKCU:\\Software\\Classes\\AppUserModelId\\${APP_ID}'`,
@@ -226,9 +255,23 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       stopBlink()
       await update($, isBusy, () => false)
-      void notifyIfAway($)
+      void notifyIfAway($, ANSWER_COMPLETE)
       await refreshMonthly($)
     }
+
+    return next(e)
+  })
+
+  on('classic.PermissionRequest', async ($, e, next) => {
+    if (e.agent_id === undefined) {
+      await notifyAsk($)
+    }
+
+    return next(e)
+  })
+
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    await notifyAsk($)
 
     return next(e)
   })
