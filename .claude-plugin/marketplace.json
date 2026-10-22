@@ -1,0 +1,14 @@
+{
+  "name": "poucotm-mods",
+  "description": "Claude Code mods by poucotm",
+  "owner": {
+    "name": "Yongchan Jeon"
+  },
+  "plugins": [
+    {
+      "name": "usage-band",
+      "source": "./usage-band",
+      "description": "Shows plan usage, context fill, the current model and a working/idle dot next to the prompt, with a Windows notification when an answer finishes"
+    }
+  ]
+}

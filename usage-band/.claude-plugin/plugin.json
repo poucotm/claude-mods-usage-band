@@ -1,0 +1,18 @@
+{
+  "name": "usage-band",
+  "version": "0.5.0",
+  "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "pouco"
+  },
+  "userConfig": {
+    "position": {
+      "type": "string",
+      "title": "Band position",
+      "description": "left / right: above the prompt on that side; below: under the prompt, at the right",
+      "options": ["left", "right", "below"],
+      "default": "left"
+    }
+  }
+}
