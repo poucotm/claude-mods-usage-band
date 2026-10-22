@@ -13,13 +13,14 @@ $claudeDir = Join-Path $env:USERPROFILE '.claude'
 $modDir = Join-Path $claudeDir 'mods\usage-band'
 $settingsPath = Join-Path $claudeDir 'settings.json'
 $appKey = 'HKCU:\Software\Classes\AppUserModelId\ClaudeCode.UsageBand'
+$focusKey = 'HKCU:\Software\Classes\usageband-focus'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 
 $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -142,6 +143,9 @@ const WAITING = 'Waiting for your answer'
 const ASK_QUIET_MS = 3000
 let lastAskAt = 0
 
+// Claude Code's window handle, from the last prompt; '' until one was typed.
+let claudeWindow = ''
+
 // A permission prompt (Yes/No) or a question dialog: Claude waits on the person.
 async function notifyAsk($: EngineInterface) {
   const now = await $.clock.now()
@@ -158,6 +162,7 @@ async function notifyIfAway($: EngineInterface, message: string) {
   try {
     const folder = (await $.session.cwd()).split(/[\\/]/).filter(Boolean).pop() ?? ''
     const logo = `${$.plugin.root}/claude.png`.replace(/'/g, "''")
+    const focus = `${$.plugin.root}/focus.vbs`.replace(/'/g, "''")
     const body = `${message} (${folder})`
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -190,21 +195,55 @@ async function notifyIfAway($: EngineInterface, message: string) {
       `[void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]`,
       `[void][Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]`,
       `$xml = New-Object Windows.Data.Xml.Dom.XmlDocument`,
-      `$xml.LoadXml("<toast><visual><binding template='ToastGeneric'>$image<text>Claude Code</text><text>$body</text></binding></visual></toast>")`,
+      `$focus = '${focus}'`,
+      `$launch = ''`,
+      `$protocol = 'HKCU:\\Software\\Classes\\usageband-focus'`,
+      `if ('${claudeWindow}' -and (Test-Path $focus)) { New-Item -Path "$protocol\\shell\\open\\command" -Force | Out-Null; Set-ItemProperty -Path $protocol -Name '(default)' -Value 'URL:usage-band focus'; Set-ItemProperty -Path $protocol -Name 'URL Protocol' -Value ''; Set-ItemProperty -Path "$protocol\\shell\\open\\command" -Name '(default)' -Value ('wscript.exe "' + $focus + '" "%1"'); $launch = " activationType='protocol' launch='usageband-focus:${claudeWindow}'" }`,
+      `$xml.LoadXml("<toast$launch><visual><binding template='ToastGeneric'>$image<text>Claude Code</text><text>$body</text></binding></visual></toast>")`,
       `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('${APP_ID}').Show([Windows.UI.Notifications.ToastNotification]::new($xml))`,
     ].join('; ')
 
-    // -EncodedCommand (Base64 of UTF-16LE) so Windows argument quoting cannot strip the script's quotes.
-    let utf16 = ''
-
-    for (let i = 0; i < script.length; i++) {
-      const code = script.charCodeAt(i)
-      utf16 += String.fromCharCode(code & 0xff, code >> 8)
-    }
-
-    await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-EncodedCommand', btoa(utf16)])
+    await runPowerShell($, script)
   } catch {
     // No notification is better than a failed turn.
+  }
+}
+
+// Runs a PowerShell script and returns what it printed. -EncodedCommand (Base64 of
+// UTF-16LE) so Windows argument quoting cannot strip the script's quotes.
+async function runPowerShell($: EngineInterface, script: string) {
+  let utf16 = ''
+
+  for (let i = 0; i < script.length; i++) {
+    const code = script.charCodeAt(i)
+    utf16 += String.fromCharCode(code & 0xff, code >> 8)
+  }
+
+  const { stdout } = await $.process.run([
+    'powershell',
+    '-NoProfile',
+    '-NonInteractive',
+    '-EncodedCommand',
+    btoa(utf16),
+  ])
+
+  return stdout
+}
+
+// The window the person typed the prompt in, which is Claude Code's: a click on the
+// notification brings it back to the front.
+async function rememberWindow($: EngineInterface) {
+  try {
+    const handle = await runPowerShell(
+      $,
+      `Add-Type -Namespace W -Name H -MemberDefinition '[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();'; [W.H]::GetForegroundWindow().ToInt64()`,
+    )
+
+    if (/^\d+$/.test(handle.trim())) {
+      claudeWindow = handle.trim()
+    }
+  } catch {
+    // Without it the notification just isn't clickable.
   }
 }
 
@@ -276,6 +315,12 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     await update($, usage, () => snapshot(e.context, e.rateLimits))
     await refreshMonthly($)
+
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    void rememberWindow($)
 
     return next(e)
   })
@@ -421,6 +466,67 @@ declare module 'claude-code' {
     'usage-band': { usage: Snapshot | null; monthly: number | null; isBusy: boolean; isBlinkOn: boolean }
   }
 }
+'@ },
+@{ Path = 'focus.ps1'; Newline = $true; Text = @'
+# Brings a window to the front: opened by a click on a usage-band notification as
+#   usageband-focus:<window handle>
+param([string]$Uri)
+
+$handle = 0L
+
+if (-not [Int64]::TryParse(($Uri -replace '^usageband-focus:/*', '').TrimEnd('/'), [ref]$handle)) {
+    exit
+}
+
+Add-Type -Namespace W -Name F -MemberDefinition (@(
+    '[DllImport("user32.dll")] public static extern bool IsWindow(System.IntPtr h);'
+    '[DllImport("user32.dll")] public static extern bool IsIconic(System.IntPtr h);'
+    '[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int cmd);'
+    '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);'
+    '[DllImport("user32.dll")] public static extern bool BringWindowToTop(System.IntPtr h);'
+    '[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();'
+    '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, System.IntPtr p);'
+    '[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();'
+    '[DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool attach);'
+    '[DllImport("user32.dll")] public static extern void SwitchToThisWindow(System.IntPtr h, bool altTab);'
+    '[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra);'
+) -join "`n")
+
+$window = [System.IntPtr]$handle
+
+if (-not [W.F]::IsWindow($window)) {
+    exit
+}
+
+if ([W.F]::IsIconic($window)) {
+    [void][W.F]::ShowWindow($window, 9) # SW_RESTORE
+}
+
+# Windows lets a process take the foreground only under conditions: a released Alt key
+# counts as input, and joining the current foreground window's input thread lifts the lock.
+[W.F]::keybd_event(0x12, 0, 0, [System.UIntPtr]::Zero)
+[W.F]::keybd_event(0x12, 0, 2, [System.UIntPtr]::Zero)
+
+$front = [W.F]::GetWindowThreadProcessId([W.F]::GetForegroundWindow(), [System.IntPtr]::Zero)
+$self = [W.F]::GetCurrentThreadId()
+$attached = [W.F]::AttachThreadInput($self, $front, $true)
+[void][W.F]::BringWindowToTop($window)
+$ok = [W.F]::SetForegroundWindow($window)
+
+if ($attached) {
+    [void][W.F]::AttachThreadInput($self, $front, $false)
+}
+
+if (-not $ok) {
+    [W.F]::SwitchToThisWindow($window, $true)
+}
+'@ },
+@{ Path = 'focus.vbs'; Newline = $true; Text = @'
+' Opened by a click on a usage-band notification (usageband-focus:<window handle>).
+' Runs focus.ps1 with no window, so no console flashes on screen.
+Dim folder
+folder = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)
+CreateObject("WScript.Shell").Run "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File """ & folder & "\focus.ps1"" """ & WScript.Arguments(0) & """", 0, False
 '@ }
 )
 
@@ -489,6 +595,11 @@ if ($Uninstall) {
     if (Test-Path $appKey) {
         Remove-Item -Recurse -Force $appKey
         Write-Host '알림 앱 등록(Claude Code)을 제거했습니다.'
+    }
+
+    if (Test-Path $focusKey) {
+        Remove-Item -Recurse -Force $focusKey
+        Write-Host '알림 클릭 등록(usageband-focus)을 제거했습니다.'
     }
 
     if ($isListed) {

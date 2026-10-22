@@ -7,6 +7,8 @@ files = [
     'hooks/register.tsx',
     'hooks/format.ts',
     'types/index.d.ts',
+    'focus.ps1',
+    'focus.vbs',
 ]
 
 embedded = []
@@ -32,6 +34,7 @@ $claudeDir = Join-Path $env:USERPROFILE '.claude'
 $modDir = Join-Path $claudeDir 'mods\usage-band'
 $settingsPath = Join-Path $claudeDir 'settings.json'
 $appKey = 'HKCU:\Software\Classes\AppUserModelId\ClaudeCode.UsageBand'
+$focusKey = 'HKCU:\Software\Classes\usageband-focus'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 
 $files = @(
@@ -103,6 +106,11 @@ if ($Uninstall) {
     if (Test-Path $appKey) {
         Remove-Item -Recurse -Force $appKey
         Write-Host '알림 앱 등록(Claude Code)을 제거했습니다.'
+    }
+
+    if (Test-Path $focusKey) {
+        Remove-Item -Recurse -Force $focusKey
+        Write-Host '알림 클릭 등록(usageband-focus)을 제거했습니다.'
     }
 
     if ($isListed) {

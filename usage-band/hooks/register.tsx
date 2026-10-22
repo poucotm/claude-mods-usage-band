@@ -100,6 +100,9 @@ const WAITING = 'Waiting for your answer'
 const ASK_QUIET_MS = 3000
 let lastAskAt = 0
 
+// Claude Code's window handle, from the last prompt; '' until one was typed.
+let claudeWindow = ''
+
 // A permission prompt (Yes/No) or a question dialog: Claude waits on the person.
 async function notifyAsk($: EngineInterface) {
   const now = await $.clock.now()
@@ -116,6 +119,7 @@ async function notifyIfAway($: EngineInterface, message: string) {
   try {
     const folder = (await $.session.cwd()).split(/[\\/]/).filter(Boolean).pop() ?? ''
     const logo = `${$.plugin.root}/claude.png`.replace(/'/g, "''")
+    const focus = `${$.plugin.root}/focus.vbs`.replace(/'/g, "''")
     const body = `${message} (${folder})`
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -148,21 +152,55 @@ async function notifyIfAway($: EngineInterface, message: string) {
       `[void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]`,
       `[void][Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]`,
       `$xml = New-Object Windows.Data.Xml.Dom.XmlDocument`,
-      `$xml.LoadXml("<toast><visual><binding template='ToastGeneric'>$image<text>Claude Code</text><text>$body</text></binding></visual></toast>")`,
+      `$focus = '${focus}'`,
+      `$launch = ''`,
+      `$protocol = 'HKCU:\\Software\\Classes\\usageband-focus'`,
+      `if ('${claudeWindow}' -and (Test-Path $focus)) { New-Item -Path "$protocol\\shell\\open\\command" -Force | Out-Null; Set-ItemProperty -Path $protocol -Name '(default)' -Value 'URL:usage-band focus'; Set-ItemProperty -Path $protocol -Name 'URL Protocol' -Value ''; Set-ItemProperty -Path "$protocol\\shell\\open\\command" -Name '(default)' -Value ('wscript.exe "' + $focus + '" "%1"'); $launch = " activationType='protocol' launch='usageband-focus:${claudeWindow}'" }`,
+      `$xml.LoadXml("<toast$launch><visual><binding template='ToastGeneric'>$image<text>Claude Code</text><text>$body</text></binding></visual></toast>")`,
       `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('${APP_ID}').Show([Windows.UI.Notifications.ToastNotification]::new($xml))`,
     ].join('; ')
 
-    // -EncodedCommand (Base64 of UTF-16LE) so Windows argument quoting cannot strip the script's quotes.
-    let utf16 = ''
-
-    for (let i = 0; i < script.length; i++) {
-      const code = script.charCodeAt(i)
-      utf16 += String.fromCharCode(code & 0xff, code >> 8)
-    }
-
-    await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-EncodedCommand', btoa(utf16)])
+    await runPowerShell($, script)
   } catch {
     // No notification is better than a failed turn.
+  }
+}
+
+// Runs a PowerShell script and returns what it printed. -EncodedCommand (Base64 of
+// UTF-16LE) so Windows argument quoting cannot strip the script's quotes.
+async function runPowerShell($: EngineInterface, script: string) {
+  let utf16 = ''
+
+  for (let i = 0; i < script.length; i++) {
+    const code = script.charCodeAt(i)
+    utf16 += String.fromCharCode(code & 0xff, code >> 8)
+  }
+
+  const { stdout } = await $.process.run([
+    'powershell',
+    '-NoProfile',
+    '-NonInteractive',
+    '-EncodedCommand',
+    btoa(utf16),
+  ])
+
+  return stdout
+}
+
+// The window the person typed the prompt in, which is Claude Code's: a click on the
+// notification brings it back to the front.
+async function rememberWindow($: EngineInterface) {
+  try {
+    const handle = await runPowerShell(
+      $,
+      `Add-Type -Namespace W -Name H -MemberDefinition '[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();'; [W.H]::GetForegroundWindow().ToInt64()`,
+    )
+
+    if (/^\d+$/.test(handle.trim())) {
+      claudeWindow = handle.trim()
+    }
+  } catch {
+    // Without it the notification just isn't clickable.
   }
 }
 
@@ -234,6 +272,12 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     await update($, usage, () => snapshot(e.context, e.rateLimits))
     await refreshMonthly($)
+
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    void rememberWindow($)
 
     return next(e)
   })

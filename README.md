@@ -109,9 +109,11 @@ When either happens, the mod checks which window is in front:
 - If it's the **VS Code window of this project** (its title contains the project folder name), or a **Windows Terminal** / **PowerShell / console** window, nothing happens — you're assumed to be watching.
 - Otherwise, including another VS Code window, the notification above is shown.
 
+**Click the notification to jump back.** The mod remembers the window you typed your last prompt in (VS Code, Windows Terminal or PowerShell) and brings it to the front when you click. This works from the first prompt you send in a session.
+
 Subagents finishing their own work don't trigger it; only the main conversation does. A permission prompt and a question that arrive together raise a single notification.
 
-The toast is sent as an app named **Claude Code Notification**, registered for the current user under `HKCU\Software\Classes\AppUserModelId\ClaudeCode.UsageBand` (created on the first notification). It uses the Windows default notification sound (Control Panel → Sound → *Notification*). The small app icon in the toast's header is drawn by Windows in its own color; the logo in the body keeps its original colors.
+The toast is sent as an app named **Claude Code Notification**, registered for the current user under `HKCU\Software\Classes\AppUserModelId\ClaudeCode.UsageBand` (created on the first notification). It uses the Windows default notification sound (Control Panel → Sound → *Notification*). The small app icon in the toast's header is drawn by Windows in its own color; the logo in the body keeps its original colors. Clicking runs `focus.vbs` through the `usageband-focus:` link registered under `HKCU\Software\Classes\usageband-focus`; it starts PowerShell with no window, so nothing flashes on screen.
 
 **Limitations**
 
@@ -132,7 +134,7 @@ The toast is sent as an app named **Claude Code Notification**, registered for t
 claude plugin uninstall usage-band@poucotm-mods
 ```
 
-The Windows notification app registration (`HKCU\Software\Classes\AppUserModelId\ClaudeCode.UsageBand`) stays behind; delete that key if you want it gone.
+Two Windows registrations stay behind: the notification app (`HKCU\Software\Classes\AppUserModelId\ClaudeCode.UsageBand`) and the click handler (`HKCU\Software\Classes\usageband-focus`). Delete those keys if you want them gone.
 
 **Windows installer:**
 
@@ -140,7 +142,7 @@ The Windows notification app registration (`HKCU\Software\Classes\AppUserModelId
 install-usage-band.cmd -Uninstall
 ```
 
-This deletes `%USERPROFILE%\.claude\mods\usage-band\`, removes the Claude Code Notification app registration, and removes only that path from `CLAUDE_CODE_PLUGIN_DIRS`, backing up `settings.json` first. Restart Claude Code afterwards.
+This deletes `%USERPROFILE%\.claude\mods\usage-band\`, removes the Claude Code Notification app and click-handler registrations, and removes only that path from `CLAUDE_CODE_PLUGIN_DIRS`, backing up `settings.json` first. Restart Claude Code afterwards.
 
 ## How it works
 
@@ -157,6 +159,7 @@ install-usage-band.ps1        installer; contains all mod code files
 claude.ico                    source of the notification logo (converted to claude.png on install)
 usage-band/
   claude.png                  notification logo
+  focus.vbs, focus.ps1        bring Claude Code's window to the front when a notification is clicked
   .claude-plugin/plugin.json  manifest and the Band position option
   hooks/hooks.json            points to the hooks module
   hooks/register.tsx          hooks: band drawing, blinking dot, notification
