@@ -20,7 +20,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -640,6 +640,20 @@ if (Test-Path $ico) {
 } else {
     Write-Host 'claude.ico가 스크립트 옆에 없어 알림 로고 없이 설치합니다.' -ForegroundColor Yellow
 }
+
+# 알림 앱 등록(이름, 머리글 아이콘): 첫 알림 전에 Windows가 아이콘을 읽도록 미리 기록
+$logo = Join-Path $modDir 'claude.png'
+if (-not (Test-Path $appKey)) {
+    New-Item -Path $appKey -Force | Out-Null
+}
+
+Set-ItemProperty -Path $appKey -Name DisplayName -Value 'Claude Code Notification'
+
+if (Test-Path $logo) {
+    Set-ItemProperty -Path $appKey -Name IconUri -Value $logo
+}
+
+Write-Host '알림 앱(Claude Code Notification)을 등록했습니다.'
 
 if ($isListed) {
     Write-Host 'settings.json에 이미 등록되어 있습니다.'
