@@ -21,7 +21,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -76,6 +76,7 @@ const monthly = atom({ plugin: 'usage-band', key: 'monthly' } as const, null)
 const isBusy = atom({ plugin: 'usage-band', key: 'isBusy' } as const, false)
 const isBlinkOn = atom({ plugin: 'usage-band', key: 'isBlinkOn' } as const, true)
 const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
+const modelId = atom({ plugin: 'usage-band', key: 'modelId' } as const, null)
 
 const snapshot = (context: SessionContextUsage, rateLimits: SessionRateLimit[]): Snapshot => ({
   limits: rateLimits.map(({ kind, percentUsed }) => ({ kind, percentUsed })),
@@ -254,11 +255,13 @@ const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 // this session only; null until one was typed.
 let typedEffort: string | null = null
 
-// The effort level in use: the last one typed, else the one saved in the settings.
+// The model and the effort level in use: the effort is the last one typed, else the one saved
+// in the settings. Both are kept as values so that a change redraws the band.
 async function refreshEffort($: EngineInterface) {
   try {
     const settings = await $.settings.read()
     const model = await $.session.model()
+    await update($, modelId, () => model)
     await update($, effort, () => typedEffort ?? effortLevel(settings, model))
   } catch {
     // No effort mark is better than a failed turn.
@@ -270,7 +273,7 @@ async function drawBand($: EngineInterface, e: ResolveInput, justifyContent: Jus
   const snap = await read($, usage)
   const busy = await read($, isBusy)
   const blinkOn = await read($, isBlinkOn)
-  const model = modelName(await $.session.model())
+  const model = modelName((await read($, modelId)) ?? (await $.session.model()))
   const level = effortMark(await read($, effort))
   const monthlyPercent = await read($, monthly)
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
@@ -358,6 +361,16 @@ export const register: Register = (on, options) => {
     const level = e.args.trim().toLowerCase()
 
     typedEffort = EFFORT_LEVELS.includes(level) ? level : null
+    void refreshEffort($)
+
+    return result
+  })
+
+  // `/model` shows the new model and the effort saved for it at once.
+  on('command.run', { command: 'model' }, async ($, e, next) => {
+    const result = await next(e)
+
+    typedEffort = null
     void refreshEffort($)
 
     return result
@@ -529,6 +542,7 @@ declare module 'claude-code' {
       isBusy: boolean
       isBlinkOn: boolean
       effort: string | null
+      modelId: string | null
     }
   }
 }

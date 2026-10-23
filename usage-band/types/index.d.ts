@@ -15,6 +15,7 @@ declare module 'claude-code' {
       isBusy: boolean
       isBlinkOn: boolean
       effort: string | null
+      modelId: string | null
     }
   }
 }
