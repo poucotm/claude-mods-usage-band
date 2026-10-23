@@ -9,6 +9,12 @@ export type Snapshot = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'usage-band': { usage: Snapshot | null; monthly: number | null; isBusy: boolean; isBlinkOn: boolean }
+    'usage-band': {
+      usage: Snapshot | null
+      monthly: number | null
+      isBusy: boolean
+      isBlinkOn: boolean
+      effort: string | null
+    }
   }
 }

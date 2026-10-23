@@ -12,7 +12,8 @@ $ErrorActionPreference = 'Stop'
 $claudeDir = Join-Path $env:USERPROFILE '.claude'
 $modDir = Join-Path $claudeDir 'mods\usage-band'
 $settingsPath = Join-Path $claudeDir 'settings.json'
-$appKey = 'HKCU:\Software\Classes\AppUserModelId\ClaudeCode.UsageBand'
+$appKey = 'HKCU:\Software\Classes\AppUserModelId\ClaudeCode.Usage-Band'
+$oldAppKey = 'HKCU:\Software\Classes\AppUserModelId\ClaudeCode.UsageBand'
 $focusKey = 'HKCU:\Software\Classes\usageband-focus'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 
@@ -20,7 +21,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -58,6 +59,8 @@ import {
   ORANGE,
   RED,
   contextText,
+  effortLevel,
+  effortMark,
   modelName,
   parseMonthly,
   usageColor,
@@ -72,6 +75,7 @@ const usage = atom({ plugin: 'usage-band', key: 'usage' } as const, null)
 const monthly = atom({ plugin: 'usage-band', key: 'monthly' } as const, null)
 const isBusy = atom({ plugin: 'usage-band', key: 'isBusy' } as const, false)
 const isBlinkOn = atom({ plugin: 'usage-band', key: 'isBlinkOn' } as const, true)
+const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
 
 const snapshot = (context: SessionContextUsage, rateLimits: SessionRateLimit[]): Snapshot => ({
   limits: rateLimits.map(({ kind, percentUsed }) => ({ kind, percentUsed })),
@@ -132,7 +136,7 @@ async function refreshMonthly($: EngineInterface) {
 const TERMINALS = ['WindowsTerminal', 'powershell', 'pwsh', 'conhost', 'OpenConsole']
 
 // The Windows app the toast is sent as: registered under the current user as "Claude Code Notification".
-const APP_ID = 'ClaudeCode.UsageBand'
+const APP_ID = 'ClaudeCode.Usage-Band'
 
 // The notification lines: an answer that finished, and a prompt that waits on the person.
 const ANSWER_COMPLETE = 'Answer Complete'
@@ -160,7 +164,7 @@ async function notifyAsk($: EngineInterface) {
 // claude.png in the mod's folder; without it the toast has no logo.
 async function notifyIfAway($: EngineInterface, message: string) {
   try {
-    const folder = (await $.session.cwd()).split(/[\\/]/).filter(Boolean).pop() ?? ''
+    const folder = (await $.session.root()).split(/[\\/]/).filter(Boolean).pop() ?? ''
     const logo = `${$.plugin.root}/claude.png`.replace(/'/g, "''")
     const focus = `${$.plugin.root}/focus.vbs`.replace(/'/g, "''")
     const body = `${message} (${folder})`
@@ -168,10 +172,7 @@ async function notifyIfAway($: EngineInterface, message: string) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/'/g, "''")
-    const project = ((await $.session.root()).split(/[\\/]/).filter(Boolean).pop() ?? '').replace(
-      /'/g,
-      "''",
-    )
+    const project = folder.replace(/'/g, "''")
     const terminals = TERMINALS.map(name => `'${name}'`).join(',')
     const script = [
       `Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, out uint p); [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(System.IntPtr h, System.Text.StringBuilder s, int n);'`,
@@ -189,7 +190,7 @@ async function notifyIfAway($: EngineInterface, message: string) {
       `$key = 'HKCU:\\Software\\Classes\\AppUserModelId\\${APP_ID}'`,
       `if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }`,
       `Set-ItemProperty -Path $key -Name DisplayName -Value 'Claude Code Notification'`,
-      `if ($logo) { Set-ItemProperty -Path $key -Name IconUri -Value $logo }`,
+      `if ($logo) { Set-ItemProperty -Path $key -Name IconUri -Value ($logo -replace '/', '\\') }`,
       `$image = if ($logo) { "<image placement='appLogoOverride' src='" + ([Uri]$logo).AbsoluteUri + "'/>" } else { '' }`,
       `$body = '${body}'`,
       `[void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]`,
@@ -247,12 +248,30 @@ async function rememberWindow($: EngineInterface) {
   }
 }
 
-// The band itself: usage, context, model and the busy/idle dot, in one row.
+const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+// The level the last `/effort <level>` set, which the settings do not hold when it was for
+// this session only; null until one was typed.
+let typedEffort: string | null = null
+
+// The effort level in use: the last one typed, else the one saved in the settings.
+async function refreshEffort($: EngineInterface) {
+  try {
+    const settings = await $.settings.read()
+    const model = await $.session.model()
+    await update($, effort, () => typedEffort ?? effortLevel(settings, model))
+  } catch {
+    // No effort mark is better than a failed turn.
+  }
+}
+
+// The band itself: usage, context, model, effort and the busy/idle dot, in one row.
 async function drawBand($: EngineInterface, e: ResolveInput, justifyContent: Justify) {
   const snap = await read($, usage)
   const busy = await read($, isBusy)
   const blinkOn = await read($, isBlinkOn)
   const model = modelName(await $.session.model())
+  const level = effortMark(await read($, effort))
   const monthlyPercent = await read($, monthly)
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
   const { Box, Text } = $.ui.resolve(e)
@@ -279,6 +298,12 @@ async function drawBand($: EngineInterface, e: ResolveInput, justifyContent: Jus
         {' '}
       </Text>
       <Text color={ORANGE}>{model} </Text>
+      {level ? (
+        <Text>
+          <Text color={level.color}>[{level.mark}]</Text>
+          <Text> </Text>
+        </Text>
+      ) : null}
       <Text color={dotColor}>{dot}</Text>
     </Box>
   )
@@ -308,6 +333,7 @@ export const register: Register = (on, options) => {
     }
 
     void refreshMonthly($)
+    void refreshEffort($)
 
     return result
   })
@@ -321,8 +347,20 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     void rememberWindow($)
+    void refreshEffort($)
 
     return next(e)
+  })
+
+  // `/effort <level>` shows at once; `/effort` alone opens a menu, whose pick the settings hold.
+  on('command.run', { command: 'effort' }, async ($, e, next) => {
+    const result = await next(e)
+    const level = e.args.trim().toLowerCase()
+
+    typedEffort = EFFORT_LEVELS.includes(level) ? level : null
+    void refreshEffort($)
+
+    return result
   })
 
   on('turn.start', async ($, e, next) => {
@@ -438,6 +476,28 @@ export const tokens = (n: number) =>
 export const contextText = (used: number, window: number, percent: number) =>
   `Context ${tokens(used)}/${tokens(window)} (${Math.round(percent)}%)`
 
+// The saved effort level: the model's own entry in modelSettings, else the global one.
+export const effortLevel = (settings: Record<string, unknown>, model: string): string | null => {
+  const perModel = settings.modelSettings as
+    | Record<string, { effortLevel?: unknown } | undefined>
+    | undefined
+  const level = perModel?.[model.replace(/\[.*\]$/, '')]?.effortLevel ?? settings.effortLevel
+
+  return typeof level === 'string' ? level : null
+}
+
+// Effort level: xhigh/max 🡑 red, high 🡑 orange, medium - green, low 🡓 blue; anything else none.
+export const effortMark = (level: string | null): { mark: string; color: string } | null =>
+  level === 'low'
+    ? { mark: '🡓', color: BLUE }
+    : level === 'medium'
+      ? { mark: '-', color: GREEN }
+      : level === 'high'
+        ? { mark: '🡑', color: ORANGE }
+        : level === 'xhigh' || level === 'max'
+          ? { mark: '🡑', color: RED }
+          : null
+
 // "claude-sonnet-5-5[1m]" -> "Sonnet 5.5"; a display name passes through.
 export const modelName = (raw: string) => {
   const match = /claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2}))?(?!\d)/i.exec(raw)
@@ -463,7 +523,13 @@ export type Snapshot = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'usage-band': { usage: Snapshot | null; monthly: number | null; isBusy: boolean; isBlinkOn: boolean }
+    'usage-band': {
+      usage: Snapshot | null
+      monthly: number | null
+      isBusy: boolean
+      isBlinkOn: boolean
+      effort: string | null
+    }
   }
 }
 '@ },
@@ -597,6 +663,10 @@ if ($Uninstall) {
         Write-Host '알림 앱 등록(Claude Code)을 제거했습니다.'
     }
 
+    if (Test-Path $oldAppKey) {
+        Remove-Item -Recurse -Force $oldAppKey
+    }
+
     if (Test-Path $focusKey) {
         Remove-Item -Recurse -Force $focusKey
         Write-Host '알림 클릭 등록(usageband-focus)을 제거했습니다.'
@@ -643,6 +713,11 @@ if (Test-Path $ico) {
 
 # 알림 앱 등록(이름, 머리글 아이콘): 첫 알림 전에 Windows가 아이콘을 읽도록 미리 기록
 $logo = Join-Path $modDir 'claude.png'
+
+if (Test-Path $oldAppKey) {
+    Remove-Item -Recurse -Force $oldAppKey
+}
+
 if (-not (Test-Path $appKey)) {
     New-Item -Path $appKey -Force | Out-Null
 }

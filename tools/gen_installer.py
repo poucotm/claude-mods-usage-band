@@ -33,7 +33,8 @@ $ErrorActionPreference = 'Stop'
 $claudeDir = Join-Path $env:USERPROFILE '.claude'
 $modDir = Join-Path $claudeDir 'mods\usage-band'
 $settingsPath = Join-Path $claudeDir 'settings.json'
-$appKey = 'HKCU:\Software\Classes\AppUserModelId\ClaudeCode.UsageBand'
+$appKey = 'HKCU:\Software\Classes\AppUserModelId\ClaudeCode.Usage-Band'
+$oldAppKey = 'HKCU:\Software\Classes\AppUserModelId\ClaudeCode.UsageBand'
 $focusKey = 'HKCU:\Software\Classes\usageband-focus'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 
@@ -108,6 +109,10 @@ if ($Uninstall) {
         Write-Host '알림 앱 등록(Claude Code)을 제거했습니다.'
     }
 
+    if (Test-Path $oldAppKey) {
+        Remove-Item -Recurse -Force $oldAppKey
+    }
+
     if (Test-Path $focusKey) {
         Remove-Item -Recurse -Force $focusKey
         Write-Host '알림 클릭 등록(usageband-focus)을 제거했습니다.'
@@ -154,6 +159,11 @@ if (Test-Path $ico) {
 
 # 알림 앱 등록(이름, 머리글 아이콘): 첫 알림 전에 Windows가 아이콘을 읽도록 미리 기록
 $logo = Join-Path $modDir 'claude.png'
+
+if (Test-Path $oldAppKey) {
+    Remove-Item -Recurse -Force $oldAppKey
+}
+
 if (-not (Test-Path $appKey)) {
     New-Item -Path $appKey -Force | Out-Null
 }

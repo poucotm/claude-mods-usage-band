@@ -15,6 +15,8 @@ import {
   ORANGE,
   RED,
   contextText,
+  effortLevel,
+  effortMark,
   modelName,
   parseMonthly,
   usageColor,
@@ -29,6 +31,7 @@ const usage = atom({ plugin: 'usage-band', key: 'usage' } as const, null)
 const monthly = atom({ plugin: 'usage-band', key: 'monthly' } as const, null)
 const isBusy = atom({ plugin: 'usage-band', key: 'isBusy' } as const, false)
 const isBlinkOn = atom({ plugin: 'usage-band', key: 'isBlinkOn' } as const, true)
+const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
 
 const snapshot = (context: SessionContextUsage, rateLimits: SessionRateLimit[]): Snapshot => ({
   limits: rateLimits.map(({ kind, percentUsed }) => ({ kind, percentUsed })),
@@ -89,7 +92,7 @@ async function refreshMonthly($: EngineInterface) {
 const TERMINALS = ['WindowsTerminal', 'powershell', 'pwsh', 'conhost', 'OpenConsole']
 
 // The Windows app the toast is sent as: registered under the current user as "Claude Code Notification".
-const APP_ID = 'ClaudeCode.UsageBand'
+const APP_ID = 'ClaudeCode.Usage-Band'
 
 // The notification lines: an answer that finished, and a prompt that waits on the person.
 const ANSWER_COMPLETE = 'Answer Complete'
@@ -117,7 +120,7 @@ async function notifyAsk($: EngineInterface) {
 // claude.png in the mod's folder; without it the toast has no logo.
 async function notifyIfAway($: EngineInterface, message: string) {
   try {
-    const folder = (await $.session.cwd()).split(/[\\/]/).filter(Boolean).pop() ?? ''
+    const folder = (await $.session.root()).split(/[\\/]/).filter(Boolean).pop() ?? ''
     const logo = `${$.plugin.root}/claude.png`.replace(/'/g, "''")
     const focus = `${$.plugin.root}/focus.vbs`.replace(/'/g, "''")
     const body = `${message} (${folder})`
@@ -125,10 +128,7 @@ async function notifyIfAway($: EngineInterface, message: string) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/'/g, "''")
-    const project = ((await $.session.root()).split(/[\\/]/).filter(Boolean).pop() ?? '').replace(
-      /'/g,
-      "''",
-    )
+    const project = folder.replace(/'/g, "''")
     const terminals = TERMINALS.map(name => `'${name}'`).join(',')
     const script = [
       `Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, out uint p); [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(System.IntPtr h, System.Text.StringBuilder s, int n);'`,
@@ -146,7 +146,7 @@ async function notifyIfAway($: EngineInterface, message: string) {
       `$key = 'HKCU:\\Software\\Classes\\AppUserModelId\\${APP_ID}'`,
       `if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }`,
       `Set-ItemProperty -Path $key -Name DisplayName -Value 'Claude Code Notification'`,
-      `if ($logo) { Set-ItemProperty -Path $key -Name IconUri -Value $logo }`,
+      `if ($logo) { Set-ItemProperty -Path $key -Name IconUri -Value ($logo -replace '/', '\\') }`,
       `$image = if ($logo) { "<image placement='appLogoOverride' src='" + ([Uri]$logo).AbsoluteUri + "'/>" } else { '' }`,
       `$body = '${body}'`,
       `[void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]`,
@@ -204,12 +204,30 @@ async function rememberWindow($: EngineInterface) {
   }
 }
 
-// The band itself: usage, context, model and the busy/idle dot, in one row.
+const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+// The level the last `/effort <level>` set, which the settings do not hold when it was for
+// this session only; null until one was typed.
+let typedEffort: string | null = null
+
+// The effort level in use: the last one typed, else the one saved in the settings.
+async function refreshEffort($: EngineInterface) {
+  try {
+    const settings = await $.settings.read()
+    const model = await $.session.model()
+    await update($, effort, () => typedEffort ?? effortLevel(settings, model))
+  } catch {
+    // No effort mark is better than a failed turn.
+  }
+}
+
+// The band itself: usage, context, model, effort and the busy/idle dot, in one row.
 async function drawBand($: EngineInterface, e: ResolveInput, justifyContent: Justify) {
   const snap = await read($, usage)
   const busy = await read($, isBusy)
   const blinkOn = await read($, isBlinkOn)
   const model = modelName(await $.session.model())
+  const level = effortMark(await read($, effort))
   const monthlyPercent = await read($, monthly)
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
   const { Box, Text } = $.ui.resolve(e)
@@ -236,6 +254,12 @@ async function drawBand($: EngineInterface, e: ResolveInput, justifyContent: Jus
         {' '}
       </Text>
       <Text color={ORANGE}>{model} </Text>
+      {level ? (
+        <Text>
+          <Text color={level.color}>[{level.mark}]</Text>
+          <Text> </Text>
+        </Text>
+      ) : null}
       <Text color={dotColor}>{dot}</Text>
     </Box>
   )
@@ -265,6 +289,7 @@ export const register: Register = (on, options) => {
     }
 
     void refreshMonthly($)
+    void refreshEffort($)
 
     return result
   })
@@ -278,8 +303,20 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     void rememberWindow($)
+    void refreshEffort($)
 
     return next(e)
+  })
+
+  // `/effort <level>` shows at once; `/effort` alone opens a menu, whose pick the settings hold.
+  on('command.run', { command: 'effort' }, async ($, e, next) => {
+    const result = await next(e)
+    const level = e.args.trim().toLowerCase()
+
+    typedEffort = EFFORT_LEVELS.includes(level) ? level : null
+    void refreshEffort($)
+
+    return result
   })
 
   on('turn.start', async ($, e, next) => {

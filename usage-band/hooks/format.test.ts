@@ -1,10 +1,13 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
+  BLUE,
   GREEN,
   ORANGE,
   RED,
   contextText,
+  effortLevel,
+  effortMark,
   modelName,
   parseMonthly,
   usageColor,
@@ -47,6 +50,25 @@ test('usage colours change at 80 and 90', () => {
 test('context reads in k and m', () => {
   expect(contextText(45_500, 1_000_000, 4.55)).toBe('Context 45.5k/1m (5%)')
   expect(contextText(12_000, 200_000, 6)).toBe('Context 12k/200k (6%)')
+})
+
+test('effort levels read as marks', () => {
+  expect(effortMark('low')).toEqual({ mark: '🡓', color: BLUE })
+  expect(effortMark('medium')).toEqual({ mark: '-', color: GREEN })
+  expect(effortMark('high')).toEqual({ mark: '🡑', color: ORANGE })
+  expect(effortMark('xhigh')).toEqual({ mark: '🡑', color: RED })
+  expect(effortMark('max')).toEqual({ mark: '🡑', color: RED })
+  expect(effortMark(null)).toBe(null)
+})
+
+test('the saved effort is the model\'s own, else the global one', () => {
+  const settings = {
+    effortLevel: 'medium',
+    modelSettings: { 'claude-sonnet-5-5': { effortLevel: 'low' } },
+  }
+  expect(effortLevel(settings, 'claude-sonnet-5-5[1m]')).toBe('low')
+  expect(effortLevel(settings, 'claude-opus-5-5')).toBe('medium')
+  expect(effortLevel({}, 'claude-opus-5-5')).toBe(null)
 })
 
 test('model ids read as their display names', () => {

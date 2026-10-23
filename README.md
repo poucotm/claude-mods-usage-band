@@ -11,6 +11,7 @@ A Claude Code mod that shows your plan usage, context fill, current model and a 
 | **Usage** | `Usage 11%` | Green; orange at 80% or more; red at 90% or more |
 | **Context** | `Context 45.5k/1m (5%)` — tokens used / context window (percent) | Blue |
 | **Model** | `Sonnet 5.5` (from `claude-sonnet-5-5`) | Orange |
+| **Effort** | `[🡑]` high and above, `[-]` medium, `[🡓]` low — the level saved by `/effort` | Red (xhigh, max), orange (high), green (medium), blue (low) |
 | **Status dot** | `⬤` | Red and blinking while Claude is working or answering; steady green when done |
 
 **Usage source**
@@ -113,7 +114,7 @@ When either happens, the mod checks which window is in front:
 
 Subagents finishing their own work don't trigger it; only the main conversation does. A permission prompt and a question that arrive together raise a single notification.
 
-The toast is sent as an app named **Claude Code Notification**, registered for the current user under `HKCU\Software\Classes\AppUserModelId\ClaudeCode.UsageBand` (created on the first notification). It uses the Windows default notification sound (Control Panel → Sound → *Notification*). The small app icon in the toast's header is drawn by Windows in its own color; the logo in the body keeps its original colors. Clicking runs `focus.vbs` through the `usageband-focus:` link registered under `HKCU\Software\Classes\usageband-focus`; it starts PowerShell with no window, so nothing flashes on screen.
+The toast is sent as an app named **Claude Code Notification**, registered for the current user under `HKCU\Software\Classes\AppUserModelId\ClaudeCode.Usage-Band` (created on the first notification). It uses the Windows default notification sound (Control Panel → Sound → *Notification*). The small app icon in the toast's header is drawn by Windows in its own color; the logo in the body keeps its original colors. Clicking runs `focus.vbs` through the `usageband-focus:` link registered under `HKCU\Software\Classes\usageband-focus`; it starts PowerShell with no window, so nothing flashes on screen.
 
 **Limitations**
 
@@ -134,7 +135,7 @@ The toast is sent as an app named **Claude Code Notification**, registered for t
 claude plugin uninstall usage-band@poucotm-mods
 ```
 
-Two Windows registrations stay behind: the notification app (`HKCU\Software\Classes\AppUserModelId\ClaudeCode.UsageBand`) and the click handler (`HKCU\Software\Classes\usageband-focus`). Delete those keys if you want them gone.
+Two Windows registrations stay behind: the notification app (`HKCU\Software\Classes\AppUserModelId\ClaudeCode.Usage-Band`) and the click handler (`HKCU\Software\Classes\usageband-focus`). Delete those keys if you want them gone.
 
 **Windows installer:**
 

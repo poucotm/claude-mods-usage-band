@@ -44,6 +44,28 @@ export const tokens = (n: number) =>
 export const contextText = (used: number, window: number, percent: number) =>
   `Context ${tokens(used)}/${tokens(window)} (${Math.round(percent)}%)`
 
+// The saved effort level: the model's own entry in modelSettings, else the global one.
+export const effortLevel = (settings: Record<string, unknown>, model: string): string | null => {
+  const perModel = settings.modelSettings as
+    | Record<string, { effortLevel?: unknown } | undefined>
+    | undefined
+  const level = perModel?.[model.replace(/\[.*\]$/, '')]?.effortLevel ?? settings.effortLevel
+
+  return typeof level === 'string' ? level : null
+}
+
+// Effort level: xhigh/max 🡑 red, high 🡑 orange, medium - green, low 🡓 blue; anything else none.
+export const effortMark = (level: string | null): { mark: string; color: string } | null =>
+  level === 'low'
+    ? { mark: '🡓', color: BLUE }
+    : level === 'medium'
+      ? { mark: '-', color: GREEN }
+      : level === 'high'
+        ? { mark: '🡑', color: ORANGE }
+        : level === 'xhigh' || level === 'max'
+          ? { mark: '🡑', color: RED }
+          : null
+
 // "claude-sonnet-5-5[1m]" -> "Sonnet 5.5"; a display name passes through.
 export const modelName = (raw: string) => {
   const match = /claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2}))?(?!\d)/i.exec(raw)
