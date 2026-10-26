@@ -21,7 +21,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -445,7 +445,7 @@ export const register: Register = (on, options) => {
 @{ Path = 'hooks/format.ts'; Newline = $true; Text = @'
 import type { Limit } from '../types'
 
-export const GREEN = 'green'
+export const GREEN = '#50BF65'
 export const ORANGE = '#FF8C00'
 export const RED = 'red'
 export const BLUE = '#3B82F6'

@@ -1,6 +1,6 @@
 import type { Limit } from '../types'
 
-export const GREEN = 'green'
+export const GREEN = '#50BF65'
 export const ORANGE = '#FF8C00'
 export const RED = 'red'
 export const BLUE = '#3B82F6'
