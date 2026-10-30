@@ -122,6 +122,19 @@ The toast is sent as an app named **Claude Code Notification**, registered for t
 - Terminal windows are checked per program: while any Windows Terminal or PowerShell window is in front, no notification is shown.
 - If notifications for Claude Code Notification are turned off in Windows Settings, or Do Not Disturb is on, you won't see the toast.
 
+## Quick /btw key
+
+Whenever the prompt receives the text `§btw§`, the mod replaces everything in the prompt with `/btw `, ready for a side question. Map a key to type that text. In VS Code, add this to your `keybindings.json` (Command Palette → *Preferences: Open Keyboard Shortcuts (JSON)*) to use ctrl+; in the terminal:
+
+```json
+{
+  "key": "ctrl+;",
+  "command": "workbench.action.terminal.sendSequence",
+  "args": { "text": "§btw§" },
+  "when": "terminalFocus"
+}
+```
+
 ## Update
 
 - **Marketplace:** `claude plugin update usage-band@poucotm-mods`, then restart Claude Code.

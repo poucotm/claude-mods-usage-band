@@ -21,7 +21,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -249,7 +249,9 @@ async function rememberWindow($: EngineInterface) {
   }
 }
 
-const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+const BTW_MARK = '§btw§'
+
+const EFFORT_LEVELS =['low', 'medium', 'high', 'xhigh', 'max']
 
 // The level the last `/effort <level>` set, which the settings do not hold when it was for
 // this session only; null until one was typed.
@@ -374,6 +376,18 @@ export const register: Register = (on, options) => {
     void refreshEffort($)
 
     return result
+  })
+
+  // A terminal key mapped to type BTW_MARK (VS Code: ctrl+; → sendSequence) replaces the
+  // whole draft with "/btw ", the start of a side question.
+  on('prompt.edit', async ($, e, next) => {
+    const draft = e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end)
+
+    if (draft.includes(BTW_MARK)) {
+      return { text: '/btw ', cursor: 5 }
+    }
+
+    return next(e)
   })
 
   on('turn.start', async ($, e, next) => {
