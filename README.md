@@ -54,7 +54,8 @@ The installer:
 - converts `claude.ico` into the notification logo `claude.png` in that folder (skipped, with a warning, if the icon is missing);
 - adds that folder to `env.CLAUDE_CODE_PLUGIN_DIRS` in `%USERPROFILE%\.claude\settings.json`, appending with `;` if other folders are already listed;
 - backs up an existing `settings.json` to `settings.json.bak-<timestamp>` first and keeps all your other settings;
-- stops without changing anything if `settings.json` isn't valid JSON (for example, a trailing comma).
+- stops without changing anything if `settings.json` isn't valid JSON (for example, a trailing comma);
+- adds the [Quick /btw key](#quick-btw-key) (ctrl+;) to VS Code's `keybindings.json`, backing it up first. It leaves the file alone when VS Code isn't installed, when ctrl+; is already bound, or when the file can't be read (then it prints the entry to add by hand).
 
 Running it again updates the mod files and won't add the path twice.
 
@@ -124,7 +125,7 @@ The toast is sent as an app named **Claude Code Notification**, registered for t
 
 ## Quick /btw key
 
-Whenever the prompt receives the text `§btw§`, the mod replaces everything in the prompt with `/btw `, ready for a side question. Map a key to type that text. In VS Code, add this to your `keybindings.json` (Command Palette → *Preferences: Open Keyboard Shortcuts (JSON)*) to use ctrl+; in the terminal:
+Whenever the prompt receives the text `§btw§`, the mod replaces everything in the prompt with `/btw `, ready for a side question. Map a key to type that text. The Windows installer adds ctrl+; for the VS Code terminal. Otherwise, add this to VS Code's `keybindings.json` (Command Palette → *Preferences: Open Keyboard Shortcuts (JSON)*):
 
 ```json
 {
@@ -156,7 +157,7 @@ Two Windows registrations stay behind: the notification app (`HKCU\Software\Clas
 install-usage-band.cmd -Uninstall
 ```
 
-This deletes `%USERPROFILE%\.claude\mods\usage-band\`, removes the Claude Code Notification app and click-handler registrations, and removes only that path from `CLAUDE_CODE_PLUGIN_DIRS`, backing up `settings.json` first. Restart Claude Code afterwards.
+This deletes `%USERPROFILE%\.claude\mods\usage-band\`, removes the Claude Code Notification app and click-handler registrations and the ctrl+; entry it added to VS Code, and removes only that path from `CLAUDE_CODE_PLUGIN_DIRS`, backing up `settings.json` first. Restart Claude Code afterwards.
 
 ## How it works
 

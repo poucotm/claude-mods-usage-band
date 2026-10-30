@@ -38,6 +38,17 @@ $oldAppKey = 'HKCU:\Software\Classes\AppUserModelId\ClaudeCode.UsageBand'
 $focusKey = 'HKCU:\Software\Classes\usageband-focus'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 
+# VS Code 단축키: 터미널에서 ctrl+; 가 "§btw§"를 입력하면 모드가 입력창을 "/btw "로 바꿈
+$vscodeKeys = Join-Path $env:APPDATA 'Code\User\keybindings.json'
+$btwEntry = @'
+    {
+        "key": "ctrl+;",
+        "command": "workbench.action.terminal.sendSequence",
+        "args": { "text": "§btw§" },
+        "when": "terminalFocus"
+    }
+'@ -replace "`r`n", "`n"
+
 $files = @(
 __FILES__
 )
@@ -94,6 +105,22 @@ function Set-PluginDirs($settings, $dirs) {
     }
 }
 
+# keybindings.json 목록 읽기: 줄 전체가 // 주석인 줄과 /* */ 주석은 빼고 읽음. 읽을 수 없으면 $null.
+function Read-Keybindings($raw) {
+    $plain = (($raw -split "`n") | ForEach-Object { $_ -replace '^\s*//.*$', '' }) -join "`n"
+    $plain = $plain -replace '(?s)/\*.*?\*/', ''
+
+    if ($plain.Trim() -eq '') {
+        return @{ List = @() }
+    }
+
+    try {
+        return @{ List = @(($plain | ConvertFrom-Json) | ForEach-Object { $_ }) }
+    } catch {
+        return $null
+    }
+}
+
 $settings = Read-Settings
 $dirs = Get-PluginDirs $settings
 $isListed = @($dirs | Where-Object { $_.TrimEnd('\') -ieq $modDir }).Count -gt 0
@@ -116,6 +143,17 @@ if ($Uninstall) {
     if (Test-Path $focusKey) {
         Remove-Item -Recurse -Force $focusKey
         Write-Host '알림 클릭 등록(usageband-focus)을 제거했습니다.'
+    }
+
+    if (Test-Path $vscodeKeys) {
+        $raw = [System.IO.File]::ReadAllText($vscodeKeys, $utf8)
+        $left = $raw.Replace(",`n$btwEntry", '').Replace("`n$btwEntry", '')
+
+        if ($left -ne $raw) {
+            Copy-Item $vscodeKeys "$vscodeKeys.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            [System.IO.File]::WriteAllText($vscodeKeys, $left, $utf8)
+            Write-Host 'VS Code 단축키(ctrl+; → /btw)를 제거했습니다.'
+        }
     }
 
     if ($isListed) {
@@ -175,6 +213,31 @@ if (Test-Path $logo) {
 }
 
 Write-Host '알림 앱(Claude Code Notification)을 등록했습니다.'
+
+# VS Code 단축키 추가: VS Code가 없거나, ctrl+; 가 이미 있거나, 파일을 읽을 수 없으면 건드리지 않음
+if (Test-Path (Split-Path $vscodeKeys)) {
+    if (-not (Test-Path $vscodeKeys)) {
+        [System.IO.File]::WriteAllText($vscodeKeys, "[`n$btwEntry`n]`n", $utf8)
+        Write-Host 'VS Code 단축키(ctrl+; → /btw)를 추가했습니다.'
+    } else {
+        $raw = [System.IO.File]::ReadAllText($vscodeKeys, $utf8)
+        $parsed = Read-Keybindings $raw
+        $end = $raw.LastIndexOf(']')
+
+        if ($null -eq $parsed -or $end -lt 0) {
+            Write-Host "VS Code keybindings.json을 읽을 수 없어 ctrl+; 단축키는 추가하지 않았습니다. 직접 넣어 주세요:" -ForegroundColor Yellow
+            Write-Host $btwEntry
+        } elseif (@($parsed.List | Where-Object { $_.key -eq 'ctrl+;' }).Count -gt 0) {
+            Write-Host 'VS Code에 ctrl+; 단축키가 이미 있어 그대로 둡니다.'
+        } else {
+            $sep = if ($parsed.List.Count -gt 0) { ',' } else { '' }
+            $backup = "$vscodeKeys.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $vscodeKeys $backup
+            [System.IO.File]::WriteAllText($vscodeKeys, $raw.Substring(0, $end).TrimEnd() + "$sep`n$btwEntry`n" + $raw.Substring($end), $utf8)
+            Write-Host "VS Code 단축키(ctrl+; → /btw)를 추가했습니다. 백업: $backup"
+        }
+    }
+}
 
 if ($isListed) {
     Write-Host 'settings.json에 이미 등록되어 있습니다.'
