@@ -2,7 +2,7 @@
 
 A Claude Code mod that shows your plan usage, context fill, current model and a working/idle indicator next to the prompt — and pops a Windows notification when an answer finishes while you're looking at another app.
 
-![usage-band above the prompt](images/position-left.png)
+![usage-band under the prompt](images/position-below.png)
 
 ## What it shows
 
@@ -13,6 +13,7 @@ A Claude Code mod that shows your plan usage, context fill, current model and a 
 | **Model** | `Sonnet 5.5` (from `claude-sonnet-5-5`) | Orange |
 | **Effort** | `[🡑]` high and above, `[-]` medium, `[🡓]` low — the level saved by `/effort` | Red (xhigh, max), orange (high), green (medium), blue (low) |
 | **Status dot** | `⬤` | Red and blinking while Claude is working or answering; steady green when done |
+| **Path** | `✹  D:\Develope\Claude\MODs\Mods-Usage` — the folder the session runs in, at the other end of the line (can be turned off, see [Options](#options)) | Teal |
 
 **Usage source**
 
@@ -75,23 +76,27 @@ Use your platform's path-list separator (`;` on Windows, `:` elsewhere) to list 
 
 ## Options
 
-Open `/config` in Claude Code and set **Band position**:
+Open `/config` in Claude Code to set:
 
-| Value | Where the band appears |
-| --- | --- |
-| `left` (default) | Above the prompt, left-aligned |
-| `right` | Above the prompt, right-aligned |
-| `below` | On the footer line under the prompt, at the right edge |
+- **Band position**
 
-**`left`** — the band sits directly above the prompt box:
+  | Value | Where the band appears |
+  | --- | --- |
+  | `left` | Above the prompt, left-aligned |
+  | `right` | Above the prompt, right-aligned |
+  | `below` (default) | On the footer line under the prompt, at the right edge |
 
-![Band position: left](images/position-left.png)
+- **Show path** (on by default): the session's folder path, shown on the other side of the same line as the band. Turn it off to show the band alone.
 
-**`below`** — the band moves to the footer line under the prompt and stays at the right edge, so it doesn't crowd the area above the input:
+**`below`** (default) — the band sits on the footer line under the prompt, at the right edge, with the folder path at the left end of the same line, so it doesn't crowd the area above the input:
 
 ![Band position: below](images/position-below.png)
 
-The setting is stored in `settings.json` under `pluginConfigs`. Changing it in `/config` reloads the mod right away.
+**`left`** — the band sits directly above the prompt box, with the path at the right end:
+
+![Band position: left](images/position-left.png)
+
+The settings are stored in `settings.json` under `pluginConfigs`. Changing them in `/config` reloads the mod right away.
 
 ## Completion notification
 
@@ -175,7 +180,7 @@ claude.ico                    source of the notification logo (converted to clau
 usage-band/
   claude.png                  notification logo
   focus.vbs, focus.ps1        bring Claude Code's window to the front when a notification is clicked
-  .claude-plugin/plugin.json  manifest and the Band position option
+  .claude-plugin/plugin.json  manifest and the Band position / Show path options
   hooks/hooks.json            points to the hooks module
   hooks/register.tsx          hooks: band drawing, blinking dot, notification
   hooks/format.ts             number, color and model-name formatting

@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -44,7 +44,13 @@ $files = @(
       "title": "Band position",
       "description": "left / right: above the prompt on that side; below: under the prompt, at the right",
       "options": ["left", "right", "below"],
-      "default": "left"
+      "default": "below"
+    },
+    "showPath": {
+      "type": "boolean",
+      "title": "Show path",
+      "description": "Show the session's folder path on the other side of the band",
+      "default": true
     }
   }
 }
@@ -96,7 +102,7 @@ const snapshot = (context: SessionContextUsage, rateLimits: SessionRateLimit[]):
   percent: context.percent ?? 0,
 })
 
-type Justify = 'flex-start' | 'flex-end'
+type Layout = 'left' | 'right' | 'below'
 
 let lastFetchAt = 0
 let refreshMs = MIN_REFRESH_MS
@@ -281,8 +287,9 @@ async function refreshEffort($: EngineInterface) {
   }
 }
 
-// The band itself: usage, context, model, effort and the busy/idle dot, in one row.
-async function drawBand($: EngineInterface, e: ResolveInput, justifyContent: Justify) {
+// The band itself: usage, context, model, effort and the busy/idle dot, in one row, with the
+// session's folder at the other end (below the prompt the band is at the right).
+async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, showPath: boolean) {
   const snap = await read($, usage)
   const busy = await read($, isBusy)
   const blinkOn = await read($, isBlinkOn)
@@ -295,8 +302,18 @@ async function drawBand($: EngineInterface, e: ResolveInput, justifyContent: Jus
   const dotColor = busy ? RED : GREEN
   const dot = busy && !blinkOn ? ' ' : '⬤'
 
-  return (
-    <Box flexDirection="row" justifyContent={justifyContent} width="100%">
+  // The folder the session runs in.
+  const folder = showPath ? (
+    <Text wrap="truncate-middle">
+      <Text color="#4C9DA6" bold>
+        ✹{'  '}
+      </Text>
+      <Text color="#4C9DA6">{await $.session.cwd()}</Text>
+    </Text>
+  ) : null
+
+  const band = (
+    <Box flexDirection="row" flexShrink={0}>
       {parts.length > 0 ? (
         <Text>
           <Text color={usageColor(parts[0]?.percent ?? 0)}>Usage </Text>
@@ -323,11 +340,29 @@ async function drawBand($: EngineInterface, e: ResolveInput, justifyContent: Jus
       <Text color={dotColor}>{dot}</Text>
     </Box>
   )
+
+  if (!folder) {
+    return (
+      <Box flexDirection="row" justifyContent={layout === 'left' ? 'flex-start' : 'flex-end'} width="100%">
+        {band}
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="row" justifyContent="space-between" width="100%">
+      {layout === 'left' ? band : folder}
+      <Text> </Text>
+      {layout === 'left' ? folder : band}
+    </Box>
+  )
 }
 
 export const register: Register = (on, options) => {
-  const justify: Justify = options.position === 'right' ? 'flex-end' : 'flex-start'
-  const isBelow = options.position === 'below'
+  // Below the prompt unless the person chose left or right; the path shows unless turned off.
+  const layout: Layout = options.position === 'right' ? 'right' : 'left'
+  const isBelow = options.position !== 'left' && options.position !== 'right'
+  const showPath = options.showPath !== false && options.showPath !== 'false'
 
   let blink: Timer | undefined
 
@@ -444,7 +479,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
-    return drawBand($, e, justify)
+    return drawBand($, e, layout, showPath)
   })
 
   // Below the prompt: the footer's right-hand mode labels, then the band.
@@ -457,10 +492,10 @@ export const register: Register = (on, options) => {
     const { Box, Text } = $.ui.resolve(e)
 
     return (
-      <Box flexDirection="row">
+      <Box flexDirection="row" width="100%">
         {e.props.modes.length > 0 ? modes : null}
         {e.props.modes.length > 0 ? <Text> </Text> : null}
-        {await drawBand($, e, 'flex-end')}
+        {await drawBand($, e, 'below', showPath)}
         <Text> </Text>
       </Box>
     )

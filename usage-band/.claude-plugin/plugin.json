@@ -1,6 +1,6 @@
 {
   "name": "usage-band",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -12,7 +12,13 @@
       "title": "Band position",
       "description": "left / right: above the prompt on that side; below: under the prompt, at the right",
       "options": ["left", "right", "below"],
-      "default": "left"
+      "default": "below"
+    },
+    "showPath": {
+      "type": "boolean",
+      "title": "Show path",
+      "description": "Show the session's folder path on the other side of the band",
+      "default": true
     }
   }
 }
