@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
