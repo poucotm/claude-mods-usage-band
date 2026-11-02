@@ -13,7 +13,7 @@ A Claude Code mod that shows your plan usage, context fill, current model and a 
 | **Model** | `Sonnet 5.5` (from `claude-sonnet-5-5`) | Orange |
 | **Effort** | `[🡑]` high and above, `[-]` medium, `[🡓]` low — the level saved by `/effort` | Red (xhigh, max), orange (high), green (medium), blue (low) |
 | **Status dot** | `⬤` | Red and blinking while Claude is working or answering; steady green when done |
-| **Path** | `✹  D:\Develope\Claude\MODs\Mods-Usage` — the folder the session runs in, at the other end of the line (can be turned off, see [Options](#options)) | Teal |
+| **Path** | `╰── D:\Develope\Claude\MODs\Mods-Usage ──╮` — the folder the session runs in, at the other end of the line (can be turned off, see [Options](#options)) | Teal |
 
 **Usage source**
 

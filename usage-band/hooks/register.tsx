@@ -283,9 +283,12 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, sho
   const folder = showPath ? (
     <Text wrap="truncate-middle">
       <Text color="#4C9DA6" bold>
-        ✹{'  '}
+        ╰──{' '}
       </Text>
       <Text color="#4C9DA6">{await $.session.cwd()}</Text>
+      <Text color="#4C9DA6" bold>
+        {' '}──╮
+      </Text>
     </Text>
   ) : null
 

@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.11",
+  "version": "0.5.12",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -344,9 +344,12 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, sho
   const folder = showPath ? (
     <Text wrap="truncate-middle">
       <Text color="#4C9DA6" bold>
-        ✹{'  '}
+        ╰──{' '}
       </Text>
       <Text color="#4C9DA6">{await $.session.cwd()}</Text>
+      <Text color="#4C9DA6" bold>
+        {' '}──╮
+      </Text>
     </Text>
   ) : null
 
