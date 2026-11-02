@@ -92,9 +92,9 @@ Open `/config` in Claude Code to set:
 
 ![Band position: below](images/position-below.png)
 
-**`left`** — the band sits directly above the prompt box, with the path at the right end:
+**`right`** — the band sits directly above the prompt box, at the right edge, with the path at the left end:
 
-![Band position: left](images/position-left.png)
+![Band position: right](images/position-right.png)
 
 The settings are stored in `settings.json` under `pluginConfigs`. Changing them in `/config` reloads the mod right away.
 
