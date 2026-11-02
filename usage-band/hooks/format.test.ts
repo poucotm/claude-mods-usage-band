@@ -9,7 +9,7 @@ import {
   effortLevel,
   effortMark,
   modelName,
-  parseMonthly,
+  parseUsage,
   usageColor,
   usageParts,
 } from './format'
@@ -35,10 +35,30 @@ test('monthly credits fill in only when no limit is reported', () => {
   ])
 })
 
-test('the usage API answer reads its monthly figure', () => {
-  expect(parseMonthly('{"extra_usage":{"utilization":54.4}}')).toBe(54.4)
-  expect(parseMonthly('{"five_hour":{"utilization":3}}')).toBe(undefined)
-  expect(parseMonthly('not json')).toBe(undefined)
+test('the usage API answer reads the weekly window and the monthly credits', () => {
+  expect(parseUsage('{"seven_day":{"utilization":22},"extra_usage":null}')).toEqual({
+    weekly: 22,
+    monthly: undefined,
+  })
+  expect(
+    parseUsage(
+      '{"seven_day":null,"extra_usage":{"is_enabled":true,"monthly_limit":5000,"used_credits":1250,"utilization":24}}',
+    ),
+  ).toEqual({ weekly: undefined, monthly: 25 })
+  expect(
+    parseUsage(
+      '{"seven_day":null,"spend":{"percent":37.6,"used":{"amount_minor":37600,"exponent":2,"currency":"USD"}},"extra_usage":{"is_enabled":false,"utilization":5}}',
+    ),
+  ).toEqual({ weekly: undefined, monthly: 37.6 })
+  expect(parseUsage('{"extra_usage":{"is_enabled":false,"utilization":54.4}}')).toEqual({
+    weekly: undefined,
+    monthly: 54.4,
+  })
+  expect(parseUsage('{"five_hour":{"utilization":3}}')).toEqual({
+    weekly: undefined,
+    monthly: undefined,
+  })
+  expect(parseUsage('not json')).toEqual({})
 })
 
 test('usage colours change at 80 and 90', () => {

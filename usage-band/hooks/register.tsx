@@ -8,7 +8,7 @@ import type {
   Timer,
 } from 'claude-code'
 
-import type { Snapshot } from '../types'
+import type { Limit, Snapshot } from '../types'
 import {
   BLUE,
   GREEN,
@@ -18,14 +18,22 @@ import {
   effortLevel,
   effortMark,
   modelName,
-  parseMonthly,
+  parseUsage,
   usageColor,
   usageParts,
 } from './format'
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
-const MIN_REFRESH_MS = 30_000
-const MAX_REFRESH_MS = 600_000
+
+// While no answer arrives the usage API is asked as the desktop app asks it: every 5 minutes
+// within 30 minutes of the last prompt, every 15 minutes after that. A failure waits 30 seconds,
+// doubling up to 10 minutes.
+const POLL_TICK_MS = 60_000
+const POLL_RECENT_MS = 300_000
+const POLL_QUIET_MS = 900_000
+const RECENT_PROMPT_MS = 1_800_000
+const MIN_RETRY_MS = 30_000
+const MAX_RETRY_MS = 600_000
 
 const usage = atom({ plugin: 'usage-band', key: 'usage' } as const, null)
 const monthly = atom({ plugin: 'usage-band', key: 'monthly' } as const, null)
@@ -44,17 +52,24 @@ const snapshot = (context: SessionContextUsage, rateLimits: SessionRateLimit[]):
 type Layout = 'left' | 'right' | 'below'
 
 let lastFetchAt = 0
-let refreshMs = MIN_REFRESH_MS
+let lastPromptAt = 0
+let retryAt = 0
+let retryMs = MIN_RETRY_MS
 
-// A rate limit the engine does not report (monthly credits) comes from the usage API. Asked
-// at most every refreshMs: a failure doubles the wait, a success restores it.
-async function refreshMonthly($: EngineInterface) {
+// `limits` with the `kind` entry set to `percentUsed`; added when missing only if `add`.
+const withLimit = (limits: Limit[], kind: string, percentUsed: number | undefined, add: boolean) =>
+  percentUsed === undefined
+    ? limits
+    : limits.some(l => l.kind === kind)
+      ? limits.map(l => (l.kind === kind ? { kind, percentUsed } : l))
+      : add
+        ? [...limits, { kind, percentUsed }]
+        : limits
+
+// Reads the usage API into the band: the weekly window over the answers' seven_day figure, and
+// the monthly credits, which also stand for an enterprise plan's spend_limit figure.
+async function refreshFromApi($: EngineInterface) {
   const now = await $.clock.now()
-
-  if (now - lastFetchAt < refreshMs) {
-    return
-  }
-
   lastFetchAt = now
 
   try {
@@ -70,21 +85,44 @@ async function refreshMonthly($: EngineInterface) {
     })
 
     if (!res.ok) {
-      refreshMs = Math.min(refreshMs * 2, MAX_REFRESH_MS)
+      retryAt = now + retryMs
+      retryMs = Math.min(retryMs * 2, MAX_RETRY_MS)
 
       return
     }
 
-    refreshMs = MIN_REFRESH_MS
-    const percent = parseMonthly(res.text)
+    retryMs = MIN_RETRY_MS
+    const { weekly, monthly: credits } = parseUsage(res.text)
 
-    if (percent !== undefined) {
-      await update($, monthly, () => percent)
-      await $.store.set('monthly', percent)
+    await update($, usage, snap =>
+      snap
+        ? {
+            ...snap,
+            limits: withLimit(withLimit(snap.limits, 'seven_day', weekly, true), 'spend_limit', credits, false),
+          }
+        : snap,
+    )
+
+    if (credits !== undefined) {
+      await update($, monthly, () => credits)
+      await $.store.set('monthly', credits)
     }
   } catch {
-    refreshMs = Math.min(refreshMs * 2, MAX_REFRESH_MS)
+    retryAt = now + retryMs
+    retryMs = Math.min(retryMs * 2, MAX_RETRY_MS)
   }
+}
+
+// Once a minute while the session idles: ask the usage API when its interval has passed.
+async function pollUsage($: EngineInterface) {
+  const now = await $.clock.now()
+  const every = now - lastPromptAt < RECENT_PROMPT_MS ? POLL_RECENT_MS : POLL_QUIET_MS
+
+  if ((await read($, isBusy)) || now < retryAt || now - lastFetchAt < every) {
+    return
+  }
+
+  await refreshFromApi($)
 }
 
 // Terminals Claude Code runs in: while one of them is the foreground window, the person is
@@ -304,6 +342,7 @@ export const register: Register = (on, options) => {
   const showPath = options.showPath !== false && options.showPath !== 'false'
 
   let blink: Timer | undefined
+  let poll: Timer | undefined
 
   const stopBlink = () => {
     blink?.cancel()
@@ -322,20 +361,26 @@ export const register: Register = (on, options) => {
       await update($, monthly, value => value ?? saved)
     }
 
-    void refreshMonthly($)
+    void refreshFromApi($)
     void refreshEffort($)
+
+    poll?.cancel()
+    poll = $.clock.every(POLL_TICK_MS, () => {
+      void pollUsage($)
+    })
 
     return result
   })
 
+  // An answer's own figures; the usage API is asked only while no answer arrives.
   on('session.measure', async ($, e, next) => {
     await update($, usage, () => snapshot(e.context, e.rateLimits))
-    await refreshMonthly($)
 
     return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
+    lastPromptAt = await $.clock.now()
     void rememberWindow($)
     void refreshEffort($)
 
@@ -393,7 +438,6 @@ export const register: Register = (on, options) => {
       stopBlink()
       await update($, isBusy, () => false)
       void notifyIfAway($, ANSWER_COMPLETE)
-      await refreshMonthly($)
     }
 
     return next(e)

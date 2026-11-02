@@ -26,13 +26,26 @@ export const usageParts = (
   return monthly === undefined ? [] : [{ text: pct(monthly), percent: monthly }]
 }
 
-export const parseMonthly = (text: string): number | undefined => {
-  try {
-    const percent = JSON.parse(text)?.extra_usage?.utilization
+const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
 
-    return typeof percent === 'number' ? percent : undefined
+// The usage API's answer: the weekly window (subscriptions) and the monthly figure, each as a
+// percentage. Monthly is the enterprise spend (`spend.percent`), else the extra-usage credits
+// (used / limit, as the desktop app computes them, else the utilization the answer reports).
+export const parseUsage = (text: string): { weekly?: number; monthly?: number } => {
+  try {
+    const body = JSON.parse(text)
+    const extra = body?.extra_usage
+    const used = num(extra?.used_credits)
+    const limit = num(extra?.monthly_limit)
+    const monthly =
+      num(body?.spend?.percent) ??
+      (extra?.is_enabled && used !== undefined && limit !== undefined && limit > 0
+        ? (used / limit) * 100
+        : num(extra?.utilization))
+
+    return { weekly: num(body?.seven_day?.utilization), monthly }
   } catch {
-    return undefined
+    return {}
   }
 }
 

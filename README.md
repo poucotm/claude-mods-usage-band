@@ -166,8 +166,8 @@ This deletes `%USERPROFILE%\.claude\mods\usage-band\`, removes the Claude Code N
 
 ## How it works
 
-- **Usage and context** come from figures Claude Code already receives with each API response (`session.measure`, `$.session.usage()`). They update when an answer arrives, not while you're idle.
-- **Monthly credits** (only when no weekly or spend-limit figure is reported) are read from `https://api.anthropic.com/api/oauth/usage` using the session's own credential. Requests are made at most every 30 seconds, backing off to 10 minutes on errors. This endpoint isn't part of the documented mod API, so this figure may not match your account page.
+- **Usage and context** come from figures Claude Code already receives with each API response (`session.measure`, `$.session.usage()`), so they update as answers arrive.
+- **While you're idle**, usage is read from `https://api.anthropic.com/api/oauth/usage` with the session's own credential, on the same schedule as the Claude desktop app: every 5 minutes within 30 minutes of your last prompt, every 15 minutes after that (and once when the session starts). Errors back off from 30 seconds to 10 minutes. The same request serves every plan: the weekly window (`seven_day`) for subscriptions, the monthly spend (`spend.percent`) for enterprise plans, and the extra-usage credits (`extra_usage`, used ÷ limit as the desktop app computes it) as the fallback. This endpoint isn't part of the documented mod API, so the figure may differ slightly from your account page.
 - **Model** is read from `$.session.model()` each time the band is drawn, so `/model` changes show immediately.
 - **The status dot** follows `turn.start` / `turn.complete` of the main conversation; subagents don't affect it.
 
