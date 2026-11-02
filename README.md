@@ -184,7 +184,6 @@ usage-band/
   hooks/hooks.json            points to the hooks module
   hooks/register.tsx          hooks: band drawing, blinking dot, notification
   hooks/format.ts             number, color and model-name formatting
-  hooks/format.test.ts        tests (claude plugin test usage-band)
   types/index.d.ts            state type contract
 ```
 
@@ -192,7 +191,6 @@ usage-band/
 
 ```
 claude plugin validate usage-band
-claude plugin test usage-band
 ```
 
 `install-usage-band.ps1` embeds copies of the mod files. After changing anything under `usage-band/`, regenerate the installer so it ships the new version:
