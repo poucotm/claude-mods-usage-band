@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -174,12 +174,14 @@ async function refreshFromApi($: EngineInterface) {
   }
 }
 
-// Once a minute while the session idles: ask the usage API when its interval has passed.
+// Once a minute: ask the usage API when its interval has passed, the short one while an
+// answer runs or after a recent prompt.
 async function pollUsage($: EngineInterface) {
   const now = await $.clock.now()
-  const every = now - lastPromptAt < RECENT_PROMPT_MS ? POLL_RECENT_MS : POLL_QUIET_MS
+  const isRecent = (await read($, isBusy)) || now - lastPromptAt < RECENT_PROMPT_MS
+  const every = isRecent ? POLL_RECENT_MS : POLL_QUIET_MS
 
-  if ((await read($, isBusy)) || now < retryAt || now - lastFetchAt < every) {
+  if (now < retryAt || now - lastFetchAt < every) {
     return
   }
 
@@ -441,6 +443,20 @@ export const register: Register = (on, options) => {
     await update($, usage, () => snapshot(e.context, e.rateLimits))
 
     return next(e)
+  })
+
+  // A compaction shrinks the context at once; the next measure comes only after a turn.
+  on('session.compact', async ($, e, next) => {
+    const result = await next(e)
+    const after = result.messages ? result.tokensAfter : undefined
+
+    if (e.agentId === undefined && after !== undefined) {
+      await update($, usage, snap =>
+        snap && snap.window ? { ...snap, tokens: after, percent: (after / snap.window) * 100 } : snap,
+      )
+    }
+
+    return result
   })
 
   on('prompt.submit', async ($, e, next) => {
