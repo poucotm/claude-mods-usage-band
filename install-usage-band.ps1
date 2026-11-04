@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.13",
+  "version": "0.5.14",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -50,6 +50,12 @@ $files = @(
       "type": "boolean",
       "title": "Show path",
       "description": "Show the session's folder path on the other side of the band",
+      "default": true
+    },
+    "notify": {
+      "type": "boolean",
+      "title": "Notifications",
+      "description": "Show a Windows notification when an answer finishes or Claude waits for you while another app is in front",
       "default": true
     }
   }
@@ -406,6 +412,7 @@ export const register: Register = (on, options) => {
   const layout: Layout = options.position === 'right' ? 'right' : 'left'
   const isBelow = options.position !== 'left' && options.position !== 'right'
   const showPath = options.showPath !== false && options.showPath !== 'false'
+  const notify = options.notify !== false && options.notify !== 'false'
 
   let blink: Timer | undefined
   let poll: Timer | undefined
@@ -517,14 +524,16 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       stopBlink()
       await update($, isBusy, () => false)
-      void notifyIfAway($, ANSWER_COMPLETE)
+      if (notify) {
+        void notifyIfAway($, ANSWER_COMPLETE)
+      }
     }
 
     return next(e)
   })
 
   on('classic.PermissionRequest', async ($, e, next) => {
-    if (e.agent_id === undefined) {
+    if (notify && e.agent_id === undefined) {
       await notifyAsk($)
     }
 
@@ -532,7 +541,9 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
-    await notifyAsk($)
+    if (notify) {
+      await notifyAsk($)
+    }
 
     return next(e)
   })

@@ -88,6 +88,8 @@ Open `/config` in Claude Code to set:
 
 - **Show path** (on by default): the session's folder path, shown on the other side of the same line as the band. Turn it off to show the band alone.
 
+- **Notifications** (on by default): the Windows [completion notification](#completion-notification). Turn it off to never show it; the band is unaffected.
+
 **`below`** (default) — the band sits on the footer line under the prompt, at the right edge, with the folder path at the left end of the same line, so it doesn't crowd the area above the input:
 
 ![Band position: below](images/position-below.png)
@@ -100,7 +102,7 @@ The settings are stored in `settings.json` under `pluginConfigs`. Changing them 
 
 ## Completion notification
 
-Start a long task, switch to your browser or another app, and get a Windows notification the moment Claude finishes or needs your answer, so you don't have to keep checking back.
+Start a long task, switch to your browser or another app, and get a Windows notification the moment Claude finishes or needs your answer, so you don't have to keep checking back. It can be turned off in [Options](#options).
 
 ![Completion notification](images/notification.png)
 

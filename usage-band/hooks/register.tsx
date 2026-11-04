@@ -345,6 +345,7 @@ export const register: Register = (on, options) => {
   const layout: Layout = options.position === 'right' ? 'right' : 'left'
   const isBelow = options.position !== 'left' && options.position !== 'right'
   const showPath = options.showPath !== false && options.showPath !== 'false'
+  const notify = options.notify !== false && options.notify !== 'false'
 
   let blink: Timer | undefined
   let poll: Timer | undefined
@@ -456,14 +457,16 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       stopBlink()
       await update($, isBusy, () => false)
-      void notifyIfAway($, ANSWER_COMPLETE)
+      if (notify) {
+        void notifyIfAway($, ANSWER_COMPLETE)
+      }
     }
 
     return next(e)
   })
 
   on('classic.PermissionRequest', async ($, e, next) => {
-    if (e.agent_id === undefined) {
+    if (notify && e.agent_id === undefined) {
       await notifyAsk($)
     }
 
@@ -471,7 +474,9 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
-    await notifyAsk($)
+    if (notify) {
+      await notifyAsk($)
+    }
 
     return next(e)
   })
