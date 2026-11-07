@@ -11,9 +11,11 @@ import type {
 import type { Limit, Snapshot } from '../types'
 import {
   BLUE,
+  CACHE_TTL_MS,
   GREEN,
   ORANGE,
   RED,
+  cacheMark,
   contextText,
   effortLevel,
   effortMark,
@@ -41,6 +43,7 @@ const isBusy = atom({ plugin: 'usage-band', key: 'isBusy' } as const, false)
 const isBlinkOn = atom({ plugin: 'usage-band', key: 'isBlinkOn' } as const, true)
 const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
 const modelId = atom({ plugin: 'usage-band', key: 'modelId' } as const, null)
+const cacheLeft = atom({ plugin: 'usage-band', key: 'cacheLeft' } as const, null)
 
 const snapshot = (context: SessionContextUsage, rateLimits: SessionRateLimit[]): Snapshot => ({
   limits: rateLimits.map(({ kind, percentUsed }) => ({ kind, percentUsed })),
@@ -55,6 +58,27 @@ let lastFetchAt = 0
 let lastPromptAt = 0
 let retryAt = 0
 let retryMs = MIN_RETRY_MS
+
+// When the prompt cache is taken to lapse: a TTL after the last main-thread request; 0 once
+// something forfeits it, null before the first turn.
+let cacheUntil: number | null = null
+
+async function refreshCache($: EngineInterface) {
+  const now = await $.clock.now()
+  const left = cacheUntil === null ? null : (cacheUntil - now) / 60_000
+
+  await update($, cacheLeft, () => left)
+}
+
+async function touchCache($: EngineInterface) {
+  cacheUntil = (await $.clock.now()) + CACHE_TTL_MS
+  await refreshCache($)
+}
+
+async function forfeitCache($: EngineInterface) {
+  cacheUntil = 0
+  await refreshCache($)
+}
 
 // `limits` with the `kind` entry set to `percentUsed`; added when missing only if `add`.
 const withLimit = (limits: Limit[], kind: string, percentUsed: number | undefined, add: boolean) =>
@@ -268,12 +292,17 @@ async function refreshEffort($: EngineInterface) {
 
 // The band itself: usage, context, model, effort and the busy/idle dot, in one row, with the
 // session's folder at the other end (below the prompt the band is at the right).
-async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, showPath: boolean) {
+// What the band shows: the path, the cache minutes, and the short form (no Context/Cache labels).
+type Look = { showPath: boolean; showCache: boolean; isShort: boolean }
+
+async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, look: Look) {
+  const { showPath, showCache, isShort } = look
   const snap = await read($, usage)
   const busy = await read($, isBusy)
   const blinkOn = await read($, isBlinkOn)
   const model = modelName((await read($, modelId)) ?? (await $.session.model()))
   const level = effortMark(await read($, effort))
+  const cache = showCache ? cacheMark(await read($, cacheLeft), isShort) : null
   const monthlyPercent = await read($, monthly)
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
   const { Box, Text } = $.ui.resolve(e)
@@ -309,9 +338,10 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, sho
         </Text>
       ) : null}
       <Text color={BLUE}>
-        {contextText(snap?.tokens ?? 0, snap?.window ?? 0, snap?.percent ?? 0)}
+        {contextText(snap?.tokens ?? 0, snap?.window ?? 0, snap?.percent ?? 0, isShort)}
         {' '}
       </Text>
+      {cache ? <Text color={cache.color}>{cache.text} </Text> : null}
       <Text color={ORANGE}>{model} </Text>
       {level ? (
         <Text>
@@ -346,6 +376,11 @@ export const register: Register = (on, options) => {
   const isBelow = options.position !== 'left' && options.position !== 'right'
   const showPath = options.showPath !== false && options.showPath !== 'false'
   const notify = options.notify !== false && options.notify !== 'false'
+  const look: Look = {
+    showPath,
+    showCache: options.showCache !== false && options.showCache !== 'false',
+    isShort: options.form === 'short',
+  }
 
   let blink: Timer | undefined
   let poll: Timer | undefined
@@ -373,6 +408,7 @@ export const register: Register = (on, options) => {
     poll?.cancel()
     poll = $.clock.every(POLL_TICK_MS, () => {
       void pollUsage($)
+      void refreshCache($)
     })
 
     return result
@@ -394,6 +430,11 @@ export const register: Register = (on, options) => {
       await update($, usage, snap =>
         snap && snap.window ? { ...snap, tokens: after, percent: (after / snap.window) * 100 } : snap,
       )
+    }
+
+    // The compacted conversation is a new prompt: the next request writes the cache anew.
+    if (e.agentId === undefined && e.trigger !== 'precompute' && result.messages) {
+      void forfeitCache($)
     }
 
     return result
@@ -418,12 +459,18 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  // `/model` shows the new model and the effort saved for it at once.
+  // `/model` shows the new model and the effort saved for it at once; another model can't use
+  // the prompt cache.
   on('command.run', { command: 'model' }, async ($, e, next) => {
+    const before = await $.session.model()
     const result = await next(e)
 
     typedEffort = null
     void refreshEffort($)
+
+    if ((await $.session.model()) !== before) {
+      void forfeitCache($)
+    }
 
     return result
   })
@@ -448,6 +495,7 @@ export const register: Register = (on, options) => {
       blink = $.clock.every(500, () => {
         void update($, isBlinkOn, lit => !lit)
       })
+      void touchCache($)
     }
 
     return next(e)
@@ -457,6 +505,7 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       stopBlink()
       await update($, isBusy, () => false)
+      void touchCache($)
       if (notify) {
         void notifyIfAway($, ANSWER_COMPLETE)
       }
@@ -486,7 +535,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
-    return drawBand($, e, layout, showPath)
+    return drawBand($, e, layout, look)
   })
 
   // Below the prompt: the footer's right-hand mode labels, then the band.
@@ -502,7 +551,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="row" width="100%">
         {e.props.modes.length > 0 ? modes : null}
         {e.props.modes.length > 0 ? <Text> </Text> : null}
-        {await drawBand($, e, 'below', showPath)}
+        {await drawBand($, e, 'below', look)}
         <Text> </Text>
       </Box>
     )

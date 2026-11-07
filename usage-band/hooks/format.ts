@@ -54,8 +54,9 @@ const trim = (n: number) => (Math.round(n * 10) / 10).toString()
 export const tokens = (n: number) =>
   n >= 1_000_000 ? `${trim(n / 1_000_000)}m` : n >= 1000 ? `${trim(n / 1000)}k` : `${n}`
 
-export const contextText = (used: number, window: number, percent: number) =>
-  `Context ${tokens(used)}/${tokens(window)} (${Math.round(percent)}%)`
+// The short form leaves out the "Context" label.
+export const contextText = (used: number, window: number, percent: number, isShort = false) =>
+  `${isShort ? '' : 'Context '}${tokens(used)}/${tokens(window)} (${Math.round(percent)}%)`
 
 // The saved effort level: the model's own entry in modelSettings, else the global one.
 export const effortLevel = (settings: Record<string, unknown>, model: string): string | null => {
@@ -78,6 +79,30 @@ export const effortMark = (level: string | null): { mark: string; color: string 
         : level === 'xhigh' || level === 'max'
           ? { mark: '🡑', color: RED }
           : null
+
+// The prompt cache lives this long after the last request (Claude Code's subscription TTL).
+export const CACHE_TTL_MS = 3_600_000
+
+// Minutes the prompt cache has left: none before the first turn, ✗ once lapsed;
+// green above 20 minutes, orange above 5, red below. The short form leaves out the "Cache" label.
+export const cacheMark = (
+  minutesLeft: number | null,
+  isShort = false,
+): { text: string; color: string } | null => {
+  if (minutesLeft === null) {
+    return null
+  }
+
+  const label = isShort ? '' : 'Cache '
+
+  if (minutesLeft <= 0) {
+    return { text: `${label}✗`, color: 'gray' }
+  }
+
+  const color = minutesLeft > 20 ? GREEN : minutesLeft > 5 ? ORANGE : RED
+
+  return { text: `${label}${minutesLeft < 1 ? '<1m' : `${Math.floor(minutesLeft)}m`}`, color }
+}
 
 // "claude-sonnet-5-5[1m]" -> "Sonnet 5.5"; a display name passes through.
 export const modelName = (raw: string) => {

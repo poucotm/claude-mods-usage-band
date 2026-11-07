@@ -16,6 +16,7 @@ declare module 'claude-code' {
       isBlinkOn: boolean
       effort: string | null
       modelId: string | null
+      cacheLeft: number | null
     }
   }
 }

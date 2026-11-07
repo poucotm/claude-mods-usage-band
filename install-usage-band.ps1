@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.14",
+  "version": "0.5.15",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -51,6 +51,19 @@ $files = @(
       "title": "Show path",
       "description": "Show the session's folder path on the other side of the band",
       "default": true
+    },
+    "showCache": {
+      "type": "boolean",
+      "title": "Show cache",
+      "description": "Show the minutes the prompt cache has left (estimated, 1 hour after the last request)",
+      "default": true
+    },
+    "form": {
+      "type": "string",
+      "title": "Band form",
+      "description": "long: with the Context / Cache labels; short: numbers only",
+      "options": ["long", "short"],
+      "default": "long"
     },
     "notify": {
       "type": "boolean",
@@ -78,9 +91,11 @@ import type {
 import type { Limit, Snapshot } from '../types'
 import {
   BLUE,
+  CACHE_TTL_MS,
   GREEN,
   ORANGE,
   RED,
+  cacheMark,
   contextText,
   effortLevel,
   effortMark,
@@ -108,6 +123,7 @@ const isBusy = atom({ plugin: 'usage-band', key: 'isBusy' } as const, false)
 const isBlinkOn = atom({ plugin: 'usage-band', key: 'isBlinkOn' } as const, true)
 const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
 const modelId = atom({ plugin: 'usage-band', key: 'modelId' } as const, null)
+const cacheLeft = atom({ plugin: 'usage-band', key: 'cacheLeft' } as const, null)
 
 const snapshot = (context: SessionContextUsage, rateLimits: SessionRateLimit[]): Snapshot => ({
   limits: rateLimits.map(({ kind, percentUsed }) => ({ kind, percentUsed })),
@@ -122,6 +138,27 @@ let lastFetchAt = 0
 let lastPromptAt = 0
 let retryAt = 0
 let retryMs = MIN_RETRY_MS
+
+// When the prompt cache is taken to lapse: a TTL after the last main-thread request; 0 once
+// something forfeits it, null before the first turn.
+let cacheUntil: number | null = null
+
+async function refreshCache($: EngineInterface) {
+  const now = await $.clock.now()
+  const left = cacheUntil === null ? null : (cacheUntil - now) / 60_000
+
+  await update($, cacheLeft, () => left)
+}
+
+async function touchCache($: EngineInterface) {
+  cacheUntil = (await $.clock.now()) + CACHE_TTL_MS
+  await refreshCache($)
+}
+
+async function forfeitCache($: EngineInterface) {
+  cacheUntil = 0
+  await refreshCache($)
+}
 
 // `limits` with the `kind` entry set to `percentUsed`; added when missing only if `add`.
 const withLimit = (limits: Limit[], kind: string, percentUsed: number | undefined, add: boolean) =>
@@ -335,12 +372,17 @@ async function refreshEffort($: EngineInterface) {
 
 // The band itself: usage, context, model, effort and the busy/idle dot, in one row, with the
 // session's folder at the other end (below the prompt the band is at the right).
-async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, showPath: boolean) {
+// What the band shows: the path, the cache minutes, and the short form (no Context/Cache labels).
+type Look = { showPath: boolean; showCache: boolean; isShort: boolean }
+
+async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, look: Look) {
+  const { showPath, showCache, isShort } = look
   const snap = await read($, usage)
   const busy = await read($, isBusy)
   const blinkOn = await read($, isBlinkOn)
   const model = modelName((await read($, modelId)) ?? (await $.session.model()))
   const level = effortMark(await read($, effort))
+  const cache = showCache ? cacheMark(await read($, cacheLeft), isShort) : null
   const monthlyPercent = await read($, monthly)
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
   const { Box, Text } = $.ui.resolve(e)
@@ -376,9 +418,10 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, sho
         </Text>
       ) : null}
       <Text color={BLUE}>
-        {contextText(snap?.tokens ?? 0, snap?.window ?? 0, snap?.percent ?? 0)}
+        {contextText(snap?.tokens ?? 0, snap?.window ?? 0, snap?.percent ?? 0, isShort)}
         {' '}
       </Text>
+      {cache ? <Text color={cache.color}>{cache.text} </Text> : null}
       <Text color={ORANGE}>{model} </Text>
       {level ? (
         <Text>
@@ -413,6 +456,11 @@ export const register: Register = (on, options) => {
   const isBelow = options.position !== 'left' && options.position !== 'right'
   const showPath = options.showPath !== false && options.showPath !== 'false'
   const notify = options.notify !== false && options.notify !== 'false'
+  const look: Look = {
+    showPath,
+    showCache: options.showCache !== false && options.showCache !== 'false',
+    isShort: options.form === 'short',
+  }
 
   let blink: Timer | undefined
   let poll: Timer | undefined
@@ -440,6 +488,7 @@ export const register: Register = (on, options) => {
     poll?.cancel()
     poll = $.clock.every(POLL_TICK_MS, () => {
       void pollUsage($)
+      void refreshCache($)
     })
 
     return result
@@ -461,6 +510,11 @@ export const register: Register = (on, options) => {
       await update($, usage, snap =>
         snap && snap.window ? { ...snap, tokens: after, percent: (after / snap.window) * 100 } : snap,
       )
+    }
+
+    // The compacted conversation is a new prompt: the next request writes the cache anew.
+    if (e.agentId === undefined && e.trigger !== 'precompute' && result.messages) {
+      void forfeitCache($)
     }
 
     return result
@@ -485,12 +539,18 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  // `/model` shows the new model and the effort saved for it at once.
+  // `/model` shows the new model and the effort saved for it at once; another model can't use
+  // the prompt cache.
   on('command.run', { command: 'model' }, async ($, e, next) => {
+    const before = await $.session.model()
     const result = await next(e)
 
     typedEffort = null
     void refreshEffort($)
+
+    if ((await $.session.model()) !== before) {
+      void forfeitCache($)
+    }
 
     return result
   })
@@ -515,6 +575,7 @@ export const register: Register = (on, options) => {
       blink = $.clock.every(500, () => {
         void update($, isBlinkOn, lit => !lit)
       })
+      void touchCache($)
     }
 
     return next(e)
@@ -524,6 +585,7 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       stopBlink()
       await update($, isBusy, () => false)
+      void touchCache($)
       if (notify) {
         void notifyIfAway($, ANSWER_COMPLETE)
       }
@@ -553,7 +615,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
-    return drawBand($, e, layout, showPath)
+    return drawBand($, e, layout, look)
   })
 
   // Below the prompt: the footer's right-hand mode labels, then the band.
@@ -569,7 +631,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="row" width="100%">
         {e.props.modes.length > 0 ? modes : null}
         {e.props.modes.length > 0 ? <Text> </Text> : null}
-        {await drawBand($, e, 'below', showPath)}
+        {await drawBand($, e, 'below', look)}
         <Text> </Text>
       </Box>
     )
@@ -633,8 +695,9 @@ const trim = (n: number) => (Math.round(n * 10) / 10).toString()
 export const tokens = (n: number) =>
   n >= 1_000_000 ? `${trim(n / 1_000_000)}m` : n >= 1000 ? `${trim(n / 1000)}k` : `${n}`
 
-export const contextText = (used: number, window: number, percent: number) =>
-  `Context ${tokens(used)}/${tokens(window)} (${Math.round(percent)}%)`
+// The short form leaves out the "Context" label.
+export const contextText = (used: number, window: number, percent: number, isShort = false) =>
+  `${isShort ? '' : 'Context '}${tokens(used)}/${tokens(window)} (${Math.round(percent)}%)`
 
 // The saved effort level: the model's own entry in modelSettings, else the global one.
 export const effortLevel = (settings: Record<string, unknown>, model: string): string | null => {
@@ -657,6 +720,30 @@ export const effortMark = (level: string | null): { mark: string; color: string 
         : level === 'xhigh' || level === 'max'
           ? { mark: '🡑', color: RED }
           : null
+
+// The prompt cache lives this long after the last request (Claude Code's subscription TTL).
+export const CACHE_TTL_MS = 3_600_000
+
+// Minutes the prompt cache has left: none before the first turn, ✗ once lapsed;
+// green above 20 minutes, orange above 5, red below. The short form leaves out the "Cache" label.
+export const cacheMark = (
+  minutesLeft: number | null,
+  isShort = false,
+): { text: string; color: string } | null => {
+  if (minutesLeft === null) {
+    return null
+  }
+
+  const label = isShort ? '' : 'Cache '
+
+  if (minutesLeft <= 0) {
+    return { text: `${label}✗`, color: 'gray' }
+  }
+
+  const color = minutesLeft > 20 ? GREEN : minutesLeft > 5 ? ORANGE : RED
+
+  return { text: `${label}${minutesLeft < 1 ? '<1m' : `${Math.floor(minutesLeft)}m`}`, color }
+}
 
 // "claude-sonnet-5-5[1m]" -> "Sonnet 5.5"; a display name passes through.
 export const modelName = (raw: string) => {
@@ -690,6 +777,7 @@ declare module 'claude-code' {
       isBlinkOn: boolean
       effort: string | null
       modelId: string | null
+      cacheLeft: number | null
     }
   }
 }
