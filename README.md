@@ -16,6 +16,8 @@ A Claude Code mod that shows your plan usage, context fill, current model and a 
 | **Status dot** | `⬤` | Red and blinking while Claude is working or answering; steady green when done |
 | **Path** | `╰── D:\Develope\Claude\MODs\Mods-Usage ──╮` — the folder the session runs in, at the other end of the line (can be turned off, see [Options](#options)) | Teal |
 
+The examples are in the `long` form. The default `short` form leaves out the `Context` and `Cache` labels (see [Options](#options)).
+
 **Usage source**
 
 - **Pro / subscription:** the weekly (`seven_day`) limit.
@@ -95,8 +97,8 @@ Open `/config` in Claude Code to set:
 
   | Value | Band |
   | --- | --- |
-  | `long` (default) | `Usage 19% Context 221.1k/1m (22%) Cache 60m Opus 5.5 [-] ⬤` |
-  | `short` | `Usage 19% 221.1k/1m (22%) 60m Opus 5.5 [-] ⬤` — without the Context and Cache labels |
+  | `short` (default) | `Usage 19% 221.1k/1m (22%) 60m Opus 5.5 [-] ⬤` — without the Context and Cache labels |
+  | `long` | `Usage 19% Context 221.1k/1m (22%) Cache 60m Opus 5.5 [-] ⬤` |
 
 - **Notifications** (on by default): the Windows [completion notification](#completion-notification). Turn it off to never show it; the band is unaffected.
 

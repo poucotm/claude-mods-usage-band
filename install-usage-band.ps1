@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -61,9 +61,9 @@ $files = @(
     "form": {
       "type": "string",
       "title": "Band form",
-      "description": "long: with the Context / Cache labels; short: numbers only",
-      "options": ["long", "short"],
-      "default": "long"
+      "description": "short: numbers only; long: with the Context / Cache labels",
+      "options": ["short", "long"],
+      "default": "short"
     },
     "notify": {
       "type": "boolean",
@@ -459,7 +459,7 @@ export const register: Register = (on, options) => {
   const look: Look = {
     showPath,
     showCache: options.showCache !== false && options.showCache !== 'false',
-    isShort: options.form === 'short',
+    isShort: options.form !== 'long',
   }
 
   let blink: Timer | undefined

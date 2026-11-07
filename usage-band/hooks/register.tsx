@@ -379,7 +379,7 @@ export const register: Register = (on, options) => {
   const look: Look = {
     showPath,
     showCache: options.showCache !== false && options.showCache !== 'false',
-    isShort: options.form === 'short',
+    isShort: options.form !== 'long',
   }
 
   let blink: Timer | undefined
