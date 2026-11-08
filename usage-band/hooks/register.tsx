@@ -14,7 +14,6 @@ import {
   CACHE_TTL_MS,
   GREEN,
   ORANGE,
-  RED,
   cacheMark,
   contextText,
   effortLevel,
@@ -307,7 +306,7 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, loo
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
   const { Box, Text } = $.ui.resolve(e)
 
-  const dotColor = busy ? RED : GREEN
+  const dotColor = busy ? 'claude' : GREEN
   const dot = busy && !blinkOn ? ' ' : '⬤'
 
   // The folder the session runs in.
