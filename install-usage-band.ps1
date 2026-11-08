@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.17",
+  "version": "0.5.18",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -386,7 +386,7 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, loo
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
   const { Box, Text } = $.ui.resolve(e)
 
-  const dotColor = busy ? 'claude' : GREEN
+  const dotColor = busy ? '#CC7052' : GREEN
   const dot = busy && !blinkOn ? ' ' : '⬤'
 
   // The folder the session runs in.

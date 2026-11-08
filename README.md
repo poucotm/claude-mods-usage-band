@@ -13,7 +13,7 @@ A Claude Code mod that shows your plan usage, context fill, current model and a 
 | **Cache** | `Cache 42m` — estimated minutes the prompt cache has left; `Cache ✗` once it has lapsed (can be turned off, see [Options](#options)) | Green; orange at 20 minutes or less; red at 5 or less; gray when lapsed |
 | **Model** | `Sonnet 5.5` (from `claude-sonnet-5-5`) | Orange |
 | **Effort** | `[🡑]` high and above, `[-]` medium, `[🡓]` low — the level saved by `/effort` | Red (xhigh, max), orange (high), green (medium), blue (low) |
-| **Status dot** | `⬤` | Orange (Claude Code's own working color) and blinking while Claude is working or answering; steady green when done |
+| **Status dot** | `⬤` | Orange (`#CC7052`) and blinking while Claude is working or answering; steady green when done |
 | **Path** | `╰── D:\Develope\Claude\MODs\Mods-Usage ──╮` — the folder the session runs in, at the other end of the line (can be turned off, see [Options](#options)) | Teal |
 
 The examples are in the `long` form. The default `short` form leaves out the `Context` and `Cache` labels (see [Options](#options)).

@@ -306,7 +306,7 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, loo
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
   const { Box, Text } = $.ui.resolve(e)
 
-  const dotColor = busy ? 'claude' : GREEN
+  const dotColor = busy ? '#CC7052' : GREEN
   const dot = busy && !blinkOn ? ' ' : '⬤'
 
   // The folder the session runs in.
