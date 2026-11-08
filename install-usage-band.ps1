@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.20",
+  "version": "0.5.21",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle icon above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -146,22 +146,51 @@ let retryMs = MIN_RETRY_MS
 // When the prompt cache is taken to lapse: a TTL after the last main-thread request; 0 once
 // something forfeits it, null before the first turn.
 let cacheUntil: number | null = null
+// The session `cacheUntil` belongs to; another id (a resume) reads its own from the store.
+let cacheSession: string | null = null
+
+// The store keeps each session's `cacheUntil`, so a resumed session shows its cache at once.
+const CACHE_KEY = 'cacheUntil'
+const CACHE_SESSIONS = 20
+
+const savedCaches = async ($: EngineInterface) => {
+  const saved = await $.store.get(CACHE_KEY)
+  return (saved !== null && typeof saved === 'object' ? saved : {}) as Record<string, number>
+}
 
 async function refreshCache($: EngineInterface) {
+  const id = await $.session.id()
+
+  if (id !== cacheSession) {
+    const until = (await savedCaches($))[id]
+    cacheUntil = typeof until === 'number' ? until : null
+    cacheSession = id
+  }
+
   const now = await $.clock.now()
   const left = cacheUntil === null ? null : (cacheUntil - now) / 60_000
 
   await update($, cacheLeft, () => left)
 }
 
-async function touchCache($: EngineInterface) {
-  cacheUntil = (await $.clock.now()) + CACHE_TTL_MS
+async function setCache($: EngineInterface, until: number) {
+  const id = await $.session.id()
+  cacheUntil = until
+  cacheSession = id
+
+  const kept = Object.entries({ ...(await savedCaches($)), [id]: until })
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, CACHE_SESSIONS)
+  await $.store.set(CACHE_KEY, Object.fromEntries(kept))
   await refreshCache($)
 }
 
+async function touchCache($: EngineInterface) {
+  await setCache($, (await $.clock.now()) + CACHE_TTL_MS)
+}
+
 async function forfeitCache($: EngineInterface) {
-  cacheUntil = 0
-  await refreshCache($)
+  await setCache($, 0)
 }
 
 // `limits` with the `kind` entry set to `percentUsed`; added when missing only if `add`.
@@ -488,6 +517,7 @@ export const register: Register = (on, options) => {
 
     void refreshFromApi($)
     void refreshEffort($)
+    void refreshCache($)
 
     poll?.cancel()
     poll = $.clock.every(POLL_TICK_MS, () => {

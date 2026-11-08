@@ -1,6 +1,6 @@
 {
   "name": "usage-band",
-  "version": "0.5.20",
+  "version": "0.5.21",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle icon above the prompt",
   "types": "./types/index.d.ts",
   "author": {
