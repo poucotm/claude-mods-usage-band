@@ -13,7 +13,7 @@ declare module 'claude-code' {
       usage: Snapshot | null
       monthly: number | null
       isBusy: boolean
-      isBlinkOn: boolean
+      spinFrame: number
       effort: string | null
       modelId: string | null
       cacheLeft: number | null

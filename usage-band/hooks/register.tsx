@@ -39,7 +39,12 @@ const MAX_RETRY_MS = 600_000
 const usage = atom({ plugin: 'usage-band', key: 'usage' } as const, null)
 const monthly = atom({ plugin: 'usage-band', key: 'monthly' } as const, null)
 const isBusy = atom({ plugin: 'usage-band', key: 'isBusy' } as const, false)
-const isBlinkOn = atom({ plugin: 'usage-band', key: 'isBlinkOn' } as const, true)
+const spinFrame = atom({ plugin: 'usage-band', key: 'spinFrame' } as const, 0)
+
+// Claude Code's own working spinner: the stars grow, then shrink back.
+const SPIN = ['·', '✢', '*', '✶', '✻', '✽']
+const SPIN_FRAMES = [...SPIN, ...SPIN.slice().reverse()]
+const SPIN_MS = 250
 const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
 const modelId = atom({ plugin: 'usage-band', key: 'modelId' } as const, null)
 const cacheLeft = atom({ plugin: 'usage-band', key: 'cacheLeft' } as const, null)
@@ -298,7 +303,7 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, loo
   const { showPath, showCache, isShort } = look
   const snap = await read($, usage)
   const busy = await read($, isBusy)
-  const blinkOn = await read($, isBlinkOn)
+  const frame = await read($, spinFrame)
   const model = modelName((await read($, modelId)) ?? (await $.session.model()))
   const level = effortMark(await read($, effort))
   const cache = showCache ? cacheMark(await read($, cacheLeft), isShort) : null
@@ -306,8 +311,8 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, loo
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
   const { Box, Text } = $.ui.resolve(e)
 
-  const dotColor = busy ? '#CC7052' : GREEN
-  const dot = busy && !blinkOn ? ' ' : '⬤'
+  const dotColor = busy ? 'claude' : GREEN
+  const dot = busy ? SPIN_FRAMES[frame % SPIN_FRAMES.length] : SPIN[SPIN.length - 1]
 
   // The folder the session runs in.
   const folder = showPath ? (
@@ -490,9 +495,9 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       stopBlink()
       await update($, isBusy, () => true)
-      await update($, isBlinkOn, () => true)
-      blink = $.clock.every(500, () => {
-        void update($, isBlinkOn, lit => !lit)
+      await update($, spinFrame, () => 0)
+      blink = $.clock.every(SPIN_MS, () => {
+        void update($, spinFrame, i => (i + 1) % SPIN_FRAMES.length)
       })
       void touchCache($)
     }

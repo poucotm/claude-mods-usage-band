@@ -13,7 +13,7 @@ A Claude Code mod that shows your plan usage, context fill, current model and a 
 | **Cache** | `Cache 42m` — estimated minutes the prompt cache has left; `Cache ✗` once it has lapsed (can be turned off, see [Options](#options)) | Green; orange at 20 minutes or less; red at 5 or less; gray when lapsed |
 | **Model** | `Sonnet 5.5` (from `claude-sonnet-5-5`) | Orange |
 | **Effort** | `[🡑]` high and above, `[-]` medium, `[🡓]` low — the level saved by `/effort` | Red (xhigh, max), orange (high), green (medium), blue (low) |
-| **Status dot** | `⬤` | Orange (`#CC7052`) and blinking while Claude is working or answering; steady green when done |
+| **Status mark** | `✽` | While Claude is working or answering, Claude Code's own star spinner (`· ✢ * ✶ ✻ ✽`) turns in Claude Code's orange; a steady green `✽` when done |
 | **Path** | `╰── D:\Develope\Claude\MODs\Mods-Usage ──╮` — the folder the session runs in, at the other end of the line (can be turned off, see [Options](#options)) | Teal |
 
 The examples are in the `long` form. The default `short` form leaves out the `Context` and `Cache` labels (see [Options](#options)).
@@ -97,8 +97,8 @@ Open `/config` in Claude Code to set:
 
   | Value | Band |
   | --- | --- |
-  | `short` (default) | `Usage 19% 221.1k/1m (22%) 60m Opus 5.5 [-] ⬤` — without the Context and Cache labels |
-  | `long` | `Usage 19% Context 221.1k/1m (22%) Cache 60m Opus 5.5 [-] ⬤` |
+  | `short` (default) | `Usage 19% 221.1k/1m (22%) 60m Opus 5.5 [-] ✽` — without the Context and Cache labels |
+  | `long` | `Usage 19% Context 221.1k/1m (22%) Cache 60m Opus 5.5 [-] ✽` |
 
 - **Notifications** (on by default): the Windows [completion notification](#completion-notification). Turn it off to never show it; the band is unaffected.
 
@@ -184,7 +184,7 @@ This deletes `%USERPROFILE%\.claude\mods\usage-band\`, removes the Claude Code N
 - **Between answers, and during long ones**, usage is also read from `https://api.anthropic.com/api/oauth/usage` with the session's own credential, on the same schedule as the Claude desktop app: every 5 minutes while an answer runs or within 30 minutes of your last prompt, every 15 minutes after that (and once when the session starts). Errors back off from 30 seconds to 10 minutes. The same request serves every plan: the weekly window (`seven_day`) for subscriptions, the monthly spend (`spend.percent`) for enterprise plans, and the extra-usage credits (`extra_usage`, used ÷ limit as the desktop app computes it) as the fallback. This endpoint isn't part of the documented mod API, so the figure may differ slightly from your account page.
 - **Cache** is an estimate: Claude Code doesn't report when the prompt cache lapses, so the mod counts down 1 hour from the last main-conversation request (the start and end of each answer). A `/model` change or a compaction marks it lapsed, since the next request writes the cache anew. It may lapse sooner than shown: Claude Code can switch to a 5-minute cache, for example on extra usage past your plan's limits. Requests outside the main conversation (`/btw`, subagents) aren't counted. After a restart or `/reload-plugins` it shows from the next answer on.
 - **Model** is read from `$.session.model()` each time the band is drawn, so `/model` changes show immediately.
-- **The status dot** follows `turn.start` / `turn.complete` of the main conversation; subagents don't affect it.
+- **The status mark** follows `turn.start` / `turn.complete` of the main conversation; subagents don't affect it.
 
 ## Files
 
@@ -197,7 +197,7 @@ usage-band/
   focus.vbs, focus.ps1        bring Claude Code's window to the front when a notification is clicked
   .claude-plugin/plugin.json  manifest and the /config options
   hooks/hooks.json            points to the hooks module
-  hooks/register.tsx          hooks: band drawing, blinking dot, notification
+  hooks/register.tsx          hooks: band drawing, status spinner, notification
   hooks/format.ts             number, color and model-name formatting
   types/index.d.ts            state type contract
 ```
