@@ -1,7 +1,7 @@
 {
   "name": "usage-band",
-  "version": "0.5.19",
-  "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
+  "version": "0.5.20",
+  "description": "Shows rate-limit usage, context fill, the current model and a busy/idle icon above the prompt",
   "types": "./types/index.d.ts",
   "author": {
     "name": "pouco"

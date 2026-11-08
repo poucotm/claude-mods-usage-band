@@ -32,8 +32,8 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.19",
-  "description": "Shows rate-limit usage, context fill, the current model and a busy/idle dot above the prompt",
+  "version": "0.5.20",
+  "description": "Shows rate-limit usage, context fill, the current model and a busy/idle icon above the prompt",
   "types": "./types/index.d.ts",
   "author": {
     "name": "pouco"
@@ -374,7 +374,7 @@ async function refreshEffort($: EngineInterface) {
   }
 }
 
-// The band itself: usage, context, model, effort and the busy/idle dot, in one row, with the
+// The band itself: usage, context, model, effort and the busy/idle icon, in one row, with the
 // session's folder at the other end (below the prompt the band is at the right).
 // What the band shows: the path, the cache minutes, and the short form (no Context/Cache labels).
 type Look = { showPath: boolean; showCache: boolean; isShort: boolean }
@@ -391,8 +391,8 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, loo
   const parts = usageParts(snap?.limits ?? [], monthlyPercent ?? undefined)
   const { Box, Text } = $.ui.resolve(e)
 
-  const dotColor = busy ? 'claude' : GREEN
-  const dot = busy ? SPIN_FRAMES[frame % SPIN_FRAMES.length] : SPIN[SPIN.length - 1]
+  const iconColor = busy ? 'claude' : GREEN
+  const icon = busy ? SPIN_FRAMES[frame % SPIN_FRAMES.length] : SPIN[SPIN.length - 1]
 
   // The folder the session runs in.
   const folder = showPath ? (
@@ -433,7 +433,7 @@ async function drawBand($: EngineInterface, e: ResolveInput, layout: Layout, loo
           <Text> </Text>
         </Text>
       ) : null}
-      <Text color={dotColor}>{dot}</Text>
+      <Text color={iconColor}>{icon}</Text>
     </Box>
   )
 
