@@ -10,7 +10,7 @@ A Claude Code mod that shows your plan usage, context fill, current model and a 
 | --- | --- | --- |
 | **Usage** | `Usage 11%` | Green; orange at 80% or more; red at 90% or more |
 | **Context** | `Context 45.5k/1m (5%)` — tokens used / context window (percent) | Blue |
-| **Cache** | `Cache 42m` — estimated minutes the prompt cache has left; `Cache ✗` once it has lapsed (can be turned off, see [Options](#options)) | Green; orange at 20 minutes or less; red at 5 or less; gray when lapsed |
+| **Cache** | `Cache 42m` — estimated minutes the prompt cache has left; `Cache 0m` once it has lapsed (can be turned off, see [Options](#options)) | Green; orange at 20 minutes or less; red at 5 or less, and at `0m` once lapsed |
 | **Model** | `Sonnet 5.5` (from `claude-sonnet-5-5`) | Orange |
 | **Effort** | `[🡑]` high and above, `[-]` medium, `[🡓]` low — the level saved by `/effort` | Red (xhigh, max), orange (high), green (medium), blue (low) |
 | **Status mark** | `✽` | While Claude is working or answering, Claude Code's own star spinner (`· ✢ * ✶ ✻ ✽`) turns in Claude Code's orange; a steady green `✽` when done |

@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.21",
+  "version": "0.5.22",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle icon above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -758,7 +758,7 @@ export const effortMark = (level: string | null): { mark: string; color: string 
 // The prompt cache lives this long after the last request (Claude Code's subscription TTL).
 export const CACHE_TTL_MS = 3_600_000
 
-// Minutes the prompt cache has left: none before the first turn, ✗ once lapsed;
+// Minutes the prompt cache has left: none before the first turn, a red 0m once lapsed;
 // green above 20 minutes, orange above 5, red below. The short form leaves out the "Cache" label.
 export const cacheMark = (
   minutesLeft: number | null,
@@ -771,7 +771,7 @@ export const cacheMark = (
   const label = isShort ? '' : 'Cache '
 
   if (minutesLeft <= 0) {
-    return { text: `${label}✗`, color: 'gray' }
+    return { text: `${label}0m`, color: RED }
   }
 
   const color = minutesLeft > 20 ? GREEN : minutesLeft > 5 ? ORANGE : RED
