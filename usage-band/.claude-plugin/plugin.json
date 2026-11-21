@@ -1,6 +1,6 @@
 {
   "name": "usage-band",
-  "version": "0.5.22",
+  "version": "0.5.23",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle icon above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -38,6 +38,12 @@
       "title": "Notifications",
       "description": "Show a Windows notification when an answer finishes or Claude waits for you while another app is in front",
       "default": true
+    },
+    "guardPaths": {
+      "type": "boolean",
+      "title": "Guard outside paths",
+      "description": "Ask before a tool touches files outside the project and the folders listed under Allowed External Directories in its CLAUDE.md",
+      "default": false
     }
   }
 }

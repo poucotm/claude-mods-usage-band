@@ -23,6 +23,8 @@ import {
   usageColor,
   usageParts,
 } from './format'
+import { READ_TOOLS, callCandidates, classify, editedText, loadAllowedDirs, normPath } from './guard'
+import type { Scope } from './guard'
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
@@ -48,6 +50,27 @@ const SPIN_MS = 250
 const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
 const modelId = atom({ plugin: 'usage-band', key: 'modelId' } as const, null)
 const cacheLeft = atom({ plugin: 'usage-band', key: 'cacheLeft' } as const, null)
+
+const ALLOW_ONCE = '이번만 허용'
+const ALLOW_SESSION = '이번 세션 동안 허용'
+const REFUSE = '거부'
+
+// The project's folder, the folders its CLAUDE.md allows, and the ones allowed this session.
+async function guardScope($: EngineInterface, session: string[]) {
+  const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''
+  const rootDir = await $.session.root()
+  const cwd = await $.session.cwd()
+  const claudeMd = await $.fs.read(`${rootDir}/CLAUDE.md`).catch(() => '')
+  const listed = loadAllowedDirs(claudeMd)
+  const scope: Scope = {
+    root: normPath(rootDir, rootDir, home),
+    allowed: listed.map(dir => normPath(dir, rootDir, home)),
+    session,
+    home,
+  }
+
+  return { scope, cwd, claudeMd, listed, claudeMdPath: normPath(`${rootDir}/CLAUDE.md`, rootDir, home) }
+}
 
 const snapshot = (context: SessionContextUsage, rateLimits: SessionRateLimit[]): Snapshot => ({
   limits: rateLimits.map(({ kind, percentUsed }) => ({ kind, percentUsed })),
@@ -414,6 +437,10 @@ export const register: Register = (on, options) => {
     showCache: options.showCache !== false && options.showCache !== 'false',
     isShort: options.form !== 'long',
   }
+  const guard = options.guardPaths === true || options.guardPaths === 'true'
+  // Folders the person allowed for this session, and the calls they allowed one by one.
+  const sessionDirs: string[] = []
+  const allowedCalls = new Set<string>()
 
   let blink: Timer | undefined
   let poll: Timer | undefined
@@ -562,6 +589,88 @@ export const register: Register = (on, options) => {
     }
 
     return next(e)
+  })
+
+  // Path guard: a tool reaching beyond the project and the CLAUDE.md list waits for the person.
+  // It only asks or refuses; whatever they allow still goes through the normal permission check.
+  on('tool.call', async ($, e, next) => {
+    if (!guard) {
+      return next(e)
+    }
+
+    const input = e as unknown as Record<string, unknown>
+    const { scope, cwd, claudeMd, listed, claudeMdPath } = await guardScope($, sessionDirs)
+    const candidates = callCandidates(e.tool, input, cwd, scope.home)
+
+    if (candidates === null) {
+      return next(e)
+    }
+
+    // A change to CLAUDE.md's allowed list is asked, so the list can't be widened silently.
+    const filePath = input.file_path
+    if (typeof filePath === 'string' && normPath(filePath, cwd, scope.home) === claudeMdPath) {
+      const after = editedText(e.tool, input, claudeMd)
+
+      if (after !== null && JSON.stringify(loadAllowedDirs(after)) !== JSON.stringify(listed)) {
+        const answer = await $.ui.ask(
+          `[예외 디렉토리 변경] CLAUDE.md 의 Allowed External Directories 목록이 ${JSON.stringify(listed)} → ${JSON.stringify(loadAllowedDirs(after))} 로 바뀝니다. 진행할까요?`,
+          [ALLOW_ONCE, REFUSE],
+        )
+
+        return answer === ALLOW_ONCE
+          ? next(e)
+          : { deny: '사용자가 CLAUDE.md 의 Allowed External Directories 변경을 거부했습니다.' }
+      }
+    }
+
+    const { outside } = classify(candidates, scope)
+
+    if (outside.length === 0) {
+      return next(e)
+    }
+
+    const paths = outside.map(o => o.path).join(', ')
+    const answer = await $.ui.ask(
+      `[프로젝트 외부 접근] ${paths} 은(는) 프로젝트 디렉토리(${scope.root}) 밖입니다. 접근해도 될까요?`,
+      { header: '경로 확인', options: [ALLOW_ONCE, ALLOW_SESSION, REFUSE] },
+    )
+
+    if (answer !== ALLOW_ONCE && answer !== ALLOW_SESSION) {
+      return { deny: `사용자가 프로젝트 밖 경로 접근(${paths})을 거부했습니다.` }
+    }
+    if (answer === ALLOW_SESSION) {
+      sessionDirs.push(...outside.map(o => o.dir))
+    }
+    if (e.tool_use_id !== undefined && READ_TOOLS.includes(e.tool)) {
+      allowedCalls.add(e.tool_use_id)
+    }
+
+    return next(e)
+  }).catch(($, e, next) => (next.called ? next(e) : { deny: '경로 확인 중 오류가 나서(또는 질문이 닫혀서) 실행하지 않았습니다.' }))
+
+  // Reads the person has already allowed (CLAUDE.md's list, this session, or this call) skip Claude
+  // Code's own prompt for reading outside the project. Only an ask with no settings rule behind it
+  // is lifted; writes and shell commands keep the normal check.
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+
+    if (!guard || !READ_TOOLS.includes(e.tool) || verdict.decision !== 'ask' || verdict.rule !== undefined) {
+      return verdict
+    }
+    if (e.tool_use_id !== undefined && allowedCalls.delete(e.tool_use_id)) {
+      return { ...verdict, decision: 'allow', reason: '경로 확인에서 허용한 읽기' }
+    }
+
+    const { scope, cwd } = await guardScope($, sessionDirs)
+    const candidates = callCandidates(e.tool, (e.input ?? {}) as Record<string, unknown>, cwd, scope.home)
+
+    const verdictOf = candidates === null ? null : classify(candidates, scope)
+
+    if (verdictOf === null || verdictOf.outside.length > 0 || verdictOf.external.length === 0) {
+      return verdict
+    }
+
+    return { ...verdict, decision: 'allow', reason: '허용된 외부 디렉토리 읽기' }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

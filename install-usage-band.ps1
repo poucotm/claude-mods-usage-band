@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.22",
+  "version": "0.5.23",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle icon above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -70,6 +70,12 @@ $files = @(
       "title": "Notifications",
       "description": "Show a Windows notification when an answer finishes or Claude waits for you while another app is in front",
       "default": true
+    },
+    "guardPaths": {
+      "type": "boolean",
+      "title": "Guard outside paths",
+      "description": "Ask before a tool touches files outside the project and the folders listed under Allowed External Directories in its CLAUDE.md",
+      "default": false
     }
   }
 }
@@ -103,6 +109,8 @@ import {
   usageColor,
   usageParts,
 } from './format'
+import { READ_TOOLS, callCandidates, classify, editedText, loadAllowedDirs, normPath } from './guard'
+import type { Scope } from './guard'
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 
@@ -128,6 +136,27 @@ const SPIN_MS = 250
 const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
 const modelId = atom({ plugin: 'usage-band', key: 'modelId' } as const, null)
 const cacheLeft = atom({ plugin: 'usage-band', key: 'cacheLeft' } as const, null)
+
+const ALLOW_ONCE = '이번만 허용'
+const ALLOW_SESSION = '이번 세션 동안 허용'
+const REFUSE = '거부'
+
+// The project's folder, the folders its CLAUDE.md allows, and the ones allowed this session.
+async function guardScope($: EngineInterface, session: string[]) {
+  const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''
+  const rootDir = await $.session.root()
+  const cwd = await $.session.cwd()
+  const claudeMd = await $.fs.read(`${rootDir}/CLAUDE.md`).catch(() => '')
+  const listed = loadAllowedDirs(claudeMd)
+  const scope: Scope = {
+    root: normPath(rootDir, rootDir, home),
+    allowed: listed.map(dir => normPath(dir, rootDir, home)),
+    session,
+    home,
+  }
+
+  return { scope, cwd, claudeMd, listed, claudeMdPath: normPath(`${rootDir}/CLAUDE.md`, rootDir, home) }
+}
 
 const snapshot = (context: SessionContextUsage, rateLimits: SessionRateLimit[]): Snapshot => ({
   limits: rateLimits.map(({ kind, percentUsed }) => ({ kind, percentUsed })),
@@ -494,6 +523,10 @@ export const register: Register = (on, options) => {
     showCache: options.showCache !== false && options.showCache !== 'false',
     isShort: options.form !== 'long',
   }
+  const guard = options.guardPaths === true || options.guardPaths === 'true'
+  // Folders the person allowed for this session, and the calls they allowed one by one.
+  const sessionDirs: string[] = []
+  const allowedCalls = new Set<string>()
 
   let blink: Timer | undefined
   let poll: Timer | undefined
@@ -644,6 +677,88 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // Path guard: a tool reaching beyond the project and the CLAUDE.md list waits for the person.
+  // It only asks or refuses; whatever they allow still goes through the normal permission check.
+  on('tool.call', async ($, e, next) => {
+    if (!guard) {
+      return next(e)
+    }
+
+    const input = e as unknown as Record<string, unknown>
+    const { scope, cwd, claudeMd, listed, claudeMdPath } = await guardScope($, sessionDirs)
+    const candidates = callCandidates(e.tool, input, cwd, scope.home)
+
+    if (candidates === null) {
+      return next(e)
+    }
+
+    // A change to CLAUDE.md's allowed list is asked, so the list can't be widened silently.
+    const filePath = input.file_path
+    if (typeof filePath === 'string' && normPath(filePath, cwd, scope.home) === claudeMdPath) {
+      const after = editedText(e.tool, input, claudeMd)
+
+      if (after !== null && JSON.stringify(loadAllowedDirs(after)) !== JSON.stringify(listed)) {
+        const answer = await $.ui.ask(
+          `[예외 디렉토리 변경] CLAUDE.md 의 Allowed External Directories 목록이 ${JSON.stringify(listed)} → ${JSON.stringify(loadAllowedDirs(after))} 로 바뀝니다. 진행할까요?`,
+          [ALLOW_ONCE, REFUSE],
+        )
+
+        return answer === ALLOW_ONCE
+          ? next(e)
+          : { deny: '사용자가 CLAUDE.md 의 Allowed External Directories 변경을 거부했습니다.' }
+      }
+    }
+
+    const { outside } = classify(candidates, scope)
+
+    if (outside.length === 0) {
+      return next(e)
+    }
+
+    const paths = outside.map(o => o.path).join(', ')
+    const answer = await $.ui.ask(
+      `[프로젝트 외부 접근] ${paths} 은(는) 프로젝트 디렉토리(${scope.root}) 밖입니다. 접근해도 될까요?`,
+      { header: '경로 확인', options: [ALLOW_ONCE, ALLOW_SESSION, REFUSE] },
+    )
+
+    if (answer !== ALLOW_ONCE && answer !== ALLOW_SESSION) {
+      return { deny: `사용자가 프로젝트 밖 경로 접근(${paths})을 거부했습니다.` }
+    }
+    if (answer === ALLOW_SESSION) {
+      sessionDirs.push(...outside.map(o => o.dir))
+    }
+    if (e.tool_use_id !== undefined && READ_TOOLS.includes(e.tool)) {
+      allowedCalls.add(e.tool_use_id)
+    }
+
+    return next(e)
+  }).catch(($, e, next) => (next.called ? next(e) : { deny: '경로 확인 중 오류가 나서(또는 질문이 닫혀서) 실행하지 않았습니다.' }))
+
+  // Reads the person has already allowed (CLAUDE.md's list, this session, or this call) skip Claude
+  // Code's own prompt for reading outside the project. Only an ask with no settings rule behind it
+  // is lifted; writes and shell commands keep the normal check.
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+
+    if (!guard || !READ_TOOLS.includes(e.tool) || verdict.decision !== 'ask' || verdict.rule !== undefined) {
+      return verdict
+    }
+    if (e.tool_use_id !== undefined && allowedCalls.delete(e.tool_use_id)) {
+      return { ...verdict, decision: 'allow', reason: '경로 확인에서 허용한 읽기' }
+    }
+
+    const { scope, cwd } = await guardScope($, sessionDirs)
+    const candidates = callCandidates(e.tool, (e.input ?? {}) as Record<string, unknown>, cwd, scope.home)
+
+    const verdictOf = candidates === null ? null : classify(candidates, scope)
+
+    if (verdictOf === null || verdictOf.outside.length > 0 || verdictOf.external.length === 0) {
+      return verdict
+    }
+
+    return { ...verdict, decision: 'allow', reason: '허용된 외부 디렉토리 읽기' }
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || isBelow) {
       return next(e)
@@ -790,6 +905,214 @@ export const modelName = (raw: string) => {
   const family = match[1][0].toUpperCase() + match[1].slice(1).toLowerCase()
 
   return match[3] ? `${family} ${match[2]}.${match[3]}` : `${family} ${match[2]}`
+}
+'@ },
+@{ Path = 'hooks/guard.ts'; Newline = $true; Text = @'
+// Path guard: which paths a tool call touches, and whether each lies inside the project, a
+// folder the project's CLAUDE.md allows, or a folder allowed for this session.
+// Ported from the settings hook confirm_outside_dir.py, so both read the same CLAUDE.md list.
+
+export const FILE_TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'NotebookEdit']
+export const SHELL_TOOLS = ['Bash', 'PowerShell']
+export const READ_TOOLS = ['Read', 'Glob', 'Grep']
+
+const PATH_KEYS = ['file_path', 'path', 'notebook_path']
+const IGNORED_PATHS = new Set(['/dev/null', 'nul', '$null'])
+const CD_COMMANDS = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl'])
+
+// Bare tokens may contain backslash-escaped spaces (`Claude\ Project`).
+const TOKEN_PATTERN = /"([^"]*)"|'([^']*)'|((?:\\ |\S)+)/g
+const SPLIT_PATTERN = /[=<>|;&()]/
+const DRIVE_PATTERN = /^[A-Za-z]:[\\/]/
+const HOME_PATTERN = /^(~|\$HOME|%USERPROFILE%|\$env:USERPROFILE)(?=[\\/]|$)/i
+const GIT_BASH_DRIVE_PATTERN = /^\/([A-Za-z])(\/|$)/
+
+const ALLOWED_SECTION_PATTERN = /^#+\s*(Allowed External Directories|외부 허용 디렉토리)\s*$/i
+const HEADING_PATTERN = /^#+\s/
+const ALLOWED_ITEM_PATTERN = /^\s*-\s+`([^`]+)`/
+
+/** A path touched by a call; `isDir` when the tool names a folder rather than a file. */
+export type Candidate = { path: string; base: string; isDir: boolean }
+
+/**
+ * An absolute, `/`-separated path with `.` and `..` folded: `~` and the home variables expand,
+ * Git Bash's `/d/x` reads as `d:/x`, and Windows paths are lower-cased (their case doesn't matter).
+ */
+export function normPath(path: string, base: string, home: string): string {
+  let s = path.replace(HOME_PATTERN, home).replace(/\\/g, '/')
+  s = s.replace(GIT_BASH_DRIVE_PATTERN, (_, drive: string) => `${drive}:/`)
+
+  if (!/^[A-Za-z]:\//.test(s) && !s.startsWith('/')) {
+    s = `${base.replace(/\\/g, '/')}/${s}`
+  }
+
+  const prefix = /^[A-Za-z]:\//.test(s) ? s.slice(0, 3) : s.startsWith('//') ? '//' : '/'
+  const parts: string[] = []
+
+  for (const part of s.slice(prefix.length).split('/')) {
+    if (part === '..') {
+      parts.pop()
+    } else if (part !== '' && part !== '.') {
+      parts.push(part)
+    }
+  }
+
+  const joined = prefix + parts.join('/')
+  return prefix === '/' ? joined : joined.toLowerCase()
+}
+
+export function isInside(path: string, dir: string): boolean {
+  return path === dir || path.startsWith(dir.endsWith('/') ? dir : `${dir}/`)
+}
+
+export function parentDir(path: string): string {
+  const cut = path.lastIndexOf('/')
+  return cut <= 0 || path.slice(0, cut).endsWith(':') ? path.slice(0, cut + 1) : path.slice(0, cut)
+}
+
+function looksLikePath(token: string): boolean {
+  return (
+    DRIVE_PATTERN.test(token) ||
+    /^(\/|\\\\|~|\$HOME|%USERPROFILE%|\$env:USERPROFILE)/i.test(token) ||
+    token.replace(/\\/g, '/').split('/').includes('..')
+  )
+}
+
+/** Paths listed as "- `<path>`" under the Allowed External Directories heading. */
+export function loadAllowedDirs(text: string): string[] {
+  const dirs: string[] = []
+  let inSection = false
+
+  for (const line of text.split(/\r?\n/)) {
+    if (ALLOWED_SECTION_PATTERN.test(line)) {
+      inSection = true
+    } else if (HEADING_PATTERN.test(line)) {
+      inSection = false
+    } else if (inSection) {
+      const item = ALLOWED_ITEM_PATTERN.exec(line)?.[1]
+      if (item !== undefined) {
+        dirs.push(item.trim())
+      }
+    }
+  }
+
+  return dirs
+}
+
+/** The file's content after this Edit or Write, or null for other tools. */
+export function editedText(tool: string, input: Record<string, unknown>, current: string): string | null {
+  const str = (key: string) => (typeof input[key] === 'string' ? (input[key] as string) : '')
+
+  if (tool === 'Write') {
+    return str('content')
+  }
+  if (tool === 'Edit') {
+    const [old, replacement] = [str('old_string'), str('new_string')]
+    if (!old) {
+      return current
+    }
+    return input.replace_all === true ? current.split(old).join(replacement) : current.replace(old, () => replacement)
+  }
+  return null
+}
+
+/**
+ * Path-like tokens of a shell command, each with the folder it is relative to: a `cd <dir>`
+ * moves that folder for the tokens after it, until a `)` leaves the subshell.
+ */
+export function shellCandidates(command: string, cwd: string, home: string): Candidate[] {
+  const found: Candidate[] = []
+  let base = cwd
+  let expectCdTarget = false
+
+  for (const [, dq, sq, bare] of command.matchAll(TOKEN_PATTERN)) {
+    const parts = bare ? bare.replace(/\\ /g, ' ').split(SPLIT_PATTERN) : [dq ?? sq ?? '']
+
+    parts.forEach((raw, i) => {
+      if (i > 0) {
+        expectCdTarget = false // a separator (; & | ...) ended the cd command
+      }
+      const part = raw.trim()
+      if (!part) {
+        return
+      }
+      if (expectCdTarget) {
+        if (part.startsWith('-')) {
+          return // cd option such as -L or PowerShell -Path
+        }
+        expectCdTarget = false
+        if (!IGNORED_PATHS.has(part.toLowerCase()) && looksLikePath(part)) {
+          found.push({ path: part, base, isDir: true })
+        }
+        base = normPath(part, base, home)
+        return
+      }
+      if (bare && CD_COMMANDS.has(part.toLowerCase())) {
+        expectCdTarget = true
+        return
+      }
+      if (!IGNORED_PATHS.has(part.toLowerCase()) && looksLikePath(part)) {
+        found.push({ path: part, base, isDir: false })
+      }
+    })
+
+    if (bare && bare.includes(')')) {
+      base = cwd // leaving a subshell: its cd no longer applies
+    }
+  }
+
+  return found
+}
+
+/** The paths a call touches, or null for a tool the guard doesn't check. */
+export function callCandidates(
+  tool: string,
+  input: Record<string, unknown>,
+  cwd: string,
+  home: string,
+): Candidate[] | null {
+  if (SHELL_TOOLS.includes(tool)) {
+    return shellCandidates(typeof input.command === 'string' ? input.command : '', cwd, home)
+  }
+  if (!FILE_TOOLS.includes(tool)) {
+    return null
+  }
+
+  const named = PATH_KEYS.filter(key => typeof input[key] === 'string' && input[key] !== '').map(key => ({
+    path: input[key] as string,
+    base: cwd,
+    isDir: key === 'path',
+  }))
+
+  // Glob and Grep without a path search the working directory.
+  return named.length > 0 ? named : [{ path: cwd, base: cwd, isDir: true }]
+}
+
+/** Where the guard lets a call go. All paths are normPath'd. */
+export type Scope = { root: string; allowed: string[]; session: string[]; home: string }
+
+/**
+ * `outside`: the paths beyond the project and every allowed folder, as the call wrote them, with
+ * the folder each would be allowed under; `external`: the allowed ones beyond the project.
+ */
+export function classify(candidates: Candidate[], scope: Scope) {
+  const outside: { path: string; dir: string }[] = []
+  const external: string[] = []
+
+  for (const { path, base, isDir } of candidates) {
+    const full = normPath(path, base, scope.home)
+
+    if (isInside(full, scope.root)) {
+      continue
+    }
+    if ([...scope.allowed, ...scope.session].some(dir => isInside(full, dir))) {
+      external.push(path)
+    } else {
+      outside.push({ path, dir: isDir ? full : parentDir(full) })
+    }
+  }
+
+  return { outside, external }
 }
 '@ },
 @{ Path = 'types/index.d.ts'; Newline = $true; Text = @'

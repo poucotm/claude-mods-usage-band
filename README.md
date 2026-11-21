@@ -102,6 +102,8 @@ Open `/config` in Claude Code to set:
 
 - **Notifications** (on by default): the Windows [completion notification](#completion-notification). Turn it off to never show it; the band is unaffected.
 
+- **Guard outside paths** (off by default): ask before a tool touches files outside the project, see [Path guard](#path-guard).
+
 **`below`** (default) — the band sits on the footer line under the prompt, at the right edge, with the folder path at the left end of the same line, so it doesn't crowd the area above the input:
 
 ![Band position: below](images/position-below.png)
@@ -141,6 +143,33 @@ The toast is sent as an app named **Claude Code Notification**, registered for t
 - VS Code windows are told apart by their title. Another VS Code window with a folder of the same name, or a `window.title` setting that leaves the folder name out, isn't distinguished.
 - Terminal windows are checked per program: while any Windows Terminal or PowerShell window is in front, no notification is shown.
 - If notifications for Claude Code Notification are turned off in Windows Settings, or Do Not Disturb is on, you won't see the toast.
+
+## Path guard
+
+Turn on **Guard outside paths** in `/config` to keep Claude inside the project. When a tool call reaches a file outside it, the call waits and asks:
+
+- **이번만 허용** (allow once): the call goes ahead.
+- **이번 세션 동안 허용** (allow for this session): the call goes ahead, and that folder isn't asked about again until the session ends or `/reload-plugins`.
+- **거부** (refuse), or closing the question: the call doesn't run, and Claude is told you refused.
+
+What counts as inside:
+
+- the session's project folder (where it started, or where `/cd` took it);
+- the folders listed in that folder's `CLAUDE.md`, under a heading `Allowed External Directories` or `외부 허용 디렉토리` (any number of `#`), one per line in backticks. Each folder includes everything beneath it:
+
+  ```markdown
+  # Allowed External Directories
+  - `~/.claude/plugins`
+  - `D:\zTemp`
+  - `../shared`
+  ```
+
+  `~`, `$HOME` and `%USERPROFILE%` expand to your home folder, relative paths are taken from the project folder, and on Windows case doesn't matter. The list is read on every call, so an edit applies at once. Only the project folder's own `CLAUDE.md` is read.
+- the folders you allowed for this session.
+
+Checked tools: `Read`, `Edit`, `Write`, `Glob`, `Grep` and `NotebookEdit` by their path, and `Bash` and `PowerShell` by the path-like words in the command (absolute paths, `~`, `..`, following `cd`). Reading a shell command this way is a best guess, so turn on Claude Code's sandboxing if you need a hard boundary.
+
+The guard only asks or refuses. Whatever you allow still goes through Claude Code's normal permission check, with one exception: reads (`Read`, `Glob`, `Grep`) in a listed or allowed folder skip Claude Code's own prompt for reading outside the project, unless a settings rule asks for them. An edit to `CLAUDE.md` that changes the list is asked about too, so the list can't be widened silently. If the guard itself fails, the call is refused.
 
 ## Quick /btw key
 
@@ -199,6 +228,7 @@ usage-band/
   hooks/hooks.json            points to the hooks module
   hooks/register.tsx          hooks: band drawing, status spinner, notification
   hooks/format.ts             number, color and model-name formatting
+  hooks/guard.ts              path guard: which paths a tool call touches, and whether they're allowed
   types/index.d.ts            state type contract
 ```
 

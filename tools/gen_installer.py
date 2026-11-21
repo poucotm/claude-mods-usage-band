@@ -6,6 +6,7 @@ files = [
     'hooks/hooks.json',
     'hooks/register.tsx',
     'hooks/format.ts',
+    'hooks/guard.ts',
     'types/index.d.ts',
     'focus.ps1',
     'focus.vbs',
