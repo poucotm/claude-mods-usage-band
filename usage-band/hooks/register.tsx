@@ -23,7 +23,16 @@ import {
   usageColor,
   usageParts,
 } from './format'
-import { READ_TOOLS, callCandidates, classify, editedText, loadAllowedDirs, normPath, projectDataDir } from './guard'
+import {
+  READ_TOOLS,
+  callCandidates,
+  classify,
+  editedText,
+  guardText,
+  loadAllowedDirs,
+  normPath,
+  projectDataDir,
+} from './guard'
 import type { Scope } from './guard'
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
@@ -51,12 +60,12 @@ const effort = atom({ plugin: 'usage-band', key: 'effort' } as const, null)
 const modelId = atom({ plugin: 'usage-band', key: 'modelId' } as const, null)
 const cacheLeft = atom({ plugin: 'usage-band', key: 'cacheLeft' } as const, null)
 
-const ALLOW_ONCE = '이번만 허용'
-const ALLOW_SESSION = '이번 세션 동안 허용'
-const REFUSE = '거부'
+// The guard's words as of its last check, so its error handler speaks the same language.
+let text = guardText(undefined)
 
 // The project's folder, the folders its CLAUDE.md allows, and the ones allowed this session.
 async function guardScope($: EngineInterface, session: string[]) {
+  text = guardText((await $.settings.read()).language)
   const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''
   const rootDir = await $.session.root()
   const cwd = await $.session.cwd()
@@ -615,13 +624,11 @@ export const register: Register = (on, options) => {
 
       if (after !== null && JSON.stringify(loadAllowedDirs(after)) !== JSON.stringify(listed)) {
         const answer = await $.ui.ask(
-          `[예외 디렉토리 변경] CLAUDE.md 의 Allowed External Directories 목록이 ${JSON.stringify(listed)} → ${JSON.stringify(loadAllowedDirs(after))} 로 바뀝니다. 진행할까요?`,
-          [ALLOW_ONCE, REFUSE],
+          text.listAsk(JSON.stringify(listed), JSON.stringify(loadAllowedDirs(after))),
+          [text.allowOnce, text.refuse],
         )
 
-        return answer === ALLOW_ONCE
-          ? next(e)
-          : { deny: '사용자가 CLAUDE.md 의 Allowed External Directories 변경을 거부했습니다.' }
+        return answer === text.allowOnce ? next(e) : { deny: text.listRefused }
       }
     }
 
@@ -632,15 +639,15 @@ export const register: Register = (on, options) => {
     }
 
     const paths = outside.map(o => o.path).join(', ')
-    const answer = await $.ui.ask(
-      `[프로젝트 외부 접근] ${paths} 은(는) 프로젝트 디렉토리(${scope.root}) 밖입니다. 접근해도 될까요?`,
-      { header: '경로 확인', options: [ALLOW_ONCE, ALLOW_SESSION, REFUSE] },
-    )
+    const answer = await $.ui.ask(text.ask(paths, scope.root), {
+      header: text.header,
+      options: [text.allowOnce, text.allowSession, text.refuse],
+    })
 
-    if (answer !== ALLOW_ONCE && answer !== ALLOW_SESSION) {
-      return { deny: `사용자가 프로젝트 밖 경로 접근(${paths})을 거부했습니다.` }
+    if (answer !== text.allowOnce && answer !== text.allowSession) {
+      return { deny: text.refused(paths) }
     }
-    if (answer === ALLOW_SESSION) {
+    if (answer === text.allowSession) {
       sessionDirs.push(...outside.map(o => o.dir))
     }
     if (e.tool_use_id !== undefined && READ_TOOLS.includes(e.tool)) {
@@ -648,7 +655,7 @@ export const register: Register = (on, options) => {
     }
 
     return next(e)
-  }).catch(($, e, next) => (next.called ? next(e) : { deny: '경로 확인 중 오류가 나서(또는 질문이 닫혀서) 실행하지 않았습니다.' }))
+  }).catch(($, e, next) => (next.called ? next(e) : { deny: text.failed }))
 
   // Reads the person has already allowed (CLAUDE.md's list, this session, or this call) skip Claude
   // Code's own prompt for reading outside the project. Only an ask with no settings rule behind it
@@ -660,7 +667,7 @@ export const register: Register = (on, options) => {
       return verdict
     }
     if (e.tool_use_id !== undefined && allowedCalls.delete(e.tool_use_id)) {
-      return { ...verdict, decision: 'allow', reason: '경로 확인에서 허용한 읽기' }
+      return { ...verdict, decision: 'allow', reason: text.allowedCall }
     }
 
     const { scope, cwd } = await guardScope($, sessionDirs)
@@ -672,7 +679,7 @@ export const register: Register = (on, options) => {
       return verdict
     }
 
-    return { ...verdict, decision: 'allow', reason: '허용된 외부 디렉토리 읽기' }
+    return { ...verdict, decision: 'allow', reason: text.allowedDir }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

@@ -21,6 +21,44 @@ const ALLOWED_SECTION_PATTERN = /^#+\s*(Allowed External Directories|외부 허�
 const HEADING_PATTERN = /^#+\s/
 const ALLOWED_ITEM_PATTERN = /^\s*-\s+`([^`]+)`/
 
+/** The guard's words, in Korean when the settings' `language` is Korean, otherwise English. */
+const GUARD_TEXT = {
+  en: {
+    allowOnce: 'Allow once',
+    allowSession: 'Allow for this session',
+    refuse: 'Refuse',
+    header: 'Path check',
+    ask: (paths: string, root: string) => `[Outside the project] ${paths} is outside the project folder (${root}). Allow access?`,
+    refused: (paths: string) => `The user refused access outside the project (${paths}).`,
+    listAsk: (before: string, after: string) =>
+      `[Allowed list change] CLAUDE.md's Allowed External Directories would change from ${before} to ${after}. Go ahead?`,
+    listRefused: "The user refused the change to CLAUDE.md's Allowed External Directories.",
+    failed: "The path check failed (or the question was closed), so the call didn't run.",
+    allowedCall: 'Read allowed at the path check',
+    allowedDir: 'Read in an allowed external folder',
+  },
+  ko: {
+    allowOnce: '이번만 허용',
+    allowSession: '이번 세션 동안 허용',
+    refuse: '거부',
+    header: '경로 확인',
+    ask: (paths: string, root: string) => `[프로젝트 외부 접근] ${paths} 은(는) 프로젝트 디렉토리(${root}) 밖입니다. 접근해도 될까요?`,
+    refused: (paths: string) => `사용자가 프로젝트 밖 경로 접근(${paths})을 거부했습니다.`,
+    listAsk: (before: string, after: string) =>
+      `[예외 디렉토리 변경] CLAUDE.md 의 Allowed External Directories 목록이 ${before} → ${after} 로 바뀝니다. 진행할까요?`,
+    listRefused: '사용자가 CLAUDE.md 의 Allowed External Directories 변경을 거부했습니다.',
+    failed: '경로 확인 중 오류가 나서(또는 질문이 닫혀서) 실행하지 않았습니다.',
+    allowedCall: '경로 확인에서 허용한 읽기',
+    allowedDir: '허용된 외부 디렉토리 읽기',
+  },
+}
+
+export type GuardText = (typeof GUARD_TEXT)['en']
+
+export function guardText(language: unknown): GuardText {
+  return typeof language === 'string' && /korean|한국어|한국말|한글/i.test(language) ? GUARD_TEXT.ko : GUARD_TEXT.en
+}
+
 /** A path touched by a call; `isDir` when the tool names a folder rather than a file. */
 export type Candidate = { path: string; base: string; isDir: boolean }
 

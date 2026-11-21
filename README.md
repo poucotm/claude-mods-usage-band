@@ -148,14 +148,16 @@ The toast is sent as an app named **Claude Code Notification**, registered for t
 
 Turn on **Guard outside paths** in `/config` to keep Claude inside the project. When a tool call reaches a file outside it, the call waits and asks:
 
-- **이번만 허용** (allow once): the call goes ahead.
-- **이번 세션 동안 허용** (allow for this session): the call goes ahead, and that folder isn't asked about again until the session ends or `/reload-plugins`.
-- **거부** (refuse), or closing the question: the call doesn't run, and Claude is told you refused.
+- **Allow once**: the call goes ahead.
+- **Allow for this session**: the call goes ahead, and that folder isn't asked about again until the session ends or `/reload-plugins`.
+- **Refuse**, or closing the question: the call doesn't run, and Claude is told you refused.
+
+The question is in English, or in Korean when Claude Code's `language` setting is Korean.
 
 What counts as inside:
 
 - the session's project folder (where it started, or where `/cd` took it);
-- the folders listed in that folder's `CLAUDE.md`, under a heading `Allowed External Directories` or `외부 허용 디렉토리` (any number of `#`), one per line in backticks. Each folder includes everything beneath it:
+- the folders listed in that folder's `CLAUDE.md`, under a heading `Allowed External Directories` (any number of `#`; its Korean form is accepted too), one per line in backticks. Each folder includes everything beneath it:
 
   ```markdown
   # Allowed External Directories
