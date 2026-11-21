@@ -23,7 +23,7 @@ import {
   usageColor,
   usageParts,
 } from './format'
-import { READ_TOOLS, callCandidates, classify, editedText, loadAllowedDirs, normPath } from './guard'
+import { READ_TOOLS, callCandidates, classify, editedText, loadAllowedDirs, normPath, projectDataDir } from './guard'
 import type { Scope } from './guard'
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
@@ -62,9 +62,11 @@ async function guardScope($: EngineInterface, session: string[]) {
   const cwd = await $.session.cwd()
   const claudeMd = await $.fs.read(`${rootDir}/CLAUDE.md`).catch(() => '')
   const listed = loadAllowedDirs(claudeMd)
+  const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${home}/.claude`
   const scope: Scope = {
     root: normPath(rootDir, rootDir, home),
-    allowed: listed.map(dir => normPath(dir, rootDir, home)),
+    // Claude Code's own folder for this project (memory, transcripts) counts as allowed.
+    allowed: [...listed, projectDataDir(configDir, rootDir)].map(dir => normPath(dir, rootDir, home)),
     session,
     home,
   }

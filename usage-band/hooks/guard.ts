@@ -68,6 +68,14 @@ function looksLikePath(token: string): boolean {
   )
 }
 
+/**
+ * The folder Claude Code keeps this project's own data in (memory, transcripts, tool results):
+ * `<config>/projects/<the project path with every character but letters and digits as '-'>`.
+ */
+export function projectDataDir(configDir: string, root: string): string {
+  return `${configDir}/projects/${root.replace(/[^A-Za-z0-9]/g, '-')}`
+}
+
 /** Paths listed as "- `<path>`" under the Allowed External Directories heading. */
 export function loadAllowedDirs(text: string): string[] {
   const dirs: string[] = []

@@ -32,7 +32,7 @@ $files = @(
 @{ Path = '.claude-plugin/plugin.json'; Newline = $false; Text = @'
 {
   "name": "usage-band",
-  "version": "0.5.23",
+  "version": "0.5.24",
   "description": "Shows rate-limit usage, context fill, the current model and a busy/idle icon above the prompt",
   "types": "./types/index.d.ts",
   "author": {
@@ -109,7 +109,7 @@ import {
   usageColor,
   usageParts,
 } from './format'
-import { READ_TOOLS, callCandidates, classify, editedText, loadAllowedDirs, normPath } from './guard'
+import { READ_TOOLS, callCandidates, classify, editedText, loadAllowedDirs, normPath, projectDataDir } from './guard'
 import type { Scope } from './guard'
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
@@ -148,9 +148,11 @@ async function guardScope($: EngineInterface, session: string[]) {
   const cwd = await $.session.cwd()
   const claudeMd = await $.fs.read(`${rootDir}/CLAUDE.md`).catch(() => '')
   const listed = loadAllowedDirs(claudeMd)
+  const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${home}/.claude`
   const scope: Scope = {
     root: normPath(rootDir, rootDir, home),
-    allowed: listed.map(dir => normPath(dir, rootDir, home)),
+    // Claude Code's own folder for this project (memory, transcripts) counts as allowed.
+    allowed: [...listed, projectDataDir(configDir, rootDir)].map(dir => normPath(dir, rootDir, home)),
     session,
     home,
   }
@@ -976,6 +978,14 @@ function looksLikePath(token: string): boolean {
     /^(\/|\\\\|~|\$HOME|%USERPROFILE%|\$env:USERPROFILE)/i.test(token) ||
     token.replace(/\\/g, '/').split('/').includes('..')
   )
+}
+
+/**
+ * The folder Claude Code keeps this project's own data in (memory, transcripts, tool results):
+ * `<config>/projects/<the project path with every character but letters and digits as '-'>`.
+ */
+export function projectDataDir(configDir: string, root: string): string {
+  return `${configDir}/projects/${root.replace(/[^A-Za-z0-9]/g, '-')}`
 }
 
 /** Paths listed as "- `<path>`" under the Allowed External Directories heading. */

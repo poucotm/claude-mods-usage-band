@@ -165,6 +165,7 @@ What counts as inside:
   ```
 
   `~`, `$HOME` and `%USERPROFILE%` expand to your home folder, relative paths are taken from the project folder, and on Windows case doesn't matter. The list is read on every call, so an edit applies at once. Only the project folder's own `CLAUDE.md` is read.
+- Claude Code's own folder for the project, `~/.claude/projects/<the project path with every character but letters and digits as '-'>` (memory, transcripts; under `CLAUDE_CONFIG_DIR` when that is set);
 - the folders you allowed for this session.
 
 Checked tools: `Read`, `Edit`, `Write`, `Glob`, `Grep` and `NotebookEdit` by their path, and `Bash` and `PowerShell` by the path-like words in the command (absolute paths, `~`, `..`, following `cd`). Reading a shell command this way is a best guess, so turn on Claude Code's sandboxing if you need a hard boundary.
